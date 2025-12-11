@@ -1,0 +1,35 @@
+name: MovieBox Playlist Builder
+
+on:
+  schedule:
+    - cron: "0 */3 * * *"   # setiap 3 jam
+  workflow_dispatch:        # tombol manual run
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          pip install playwright aiohttp
+          playwright install chromium
+
+      - name: Run mobox.py
+        run: python mobox.py
+
+      - name: Commit playlist output
+        run: |
+          git config --global user.email "actions@github.com"
+          git config --global user.name "GitHub Actions"
+          git add mobox.m3u || true
+          git commit -m "Update MovieBox playlist" || true
+          git push || true
