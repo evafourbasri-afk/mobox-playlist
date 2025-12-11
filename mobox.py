@@ -1,6 +1,5 @@
-# mobox.py
-# FINAL VERSION — WORKING PLAYLIST BUILDER FOR MOVIEBOX.PH
-# Menggunakan Playwright Chromium untuk bypass Cloudflare
+# mobox.py v2 — FIXED VERSION (MovieBox sekarang pakai lazy-load)
+# Menunggu script selesai, auto scroll, lalu ambil URL streaming
 
 import asyncio
 from playwright.async_api import async_playwright
@@ -8,98 +7,82 @@ from playwright.async_api import async_playwright
 MOVIEBOX_URL = "https://moviebox.ph"
 OUTPUT_FILE = "mobox.m3u"
 
+async def auto_scroll(page):
+    """Scroll perlahan supaya lazy-loading MovieBox muncul."""
+    for _ in range(20):
+        await page.mouse.wheel(0, 2000)
+        await page.wait_for_timeout(500)
 
-# ============================================
-# Helper ambil streaming URL (.m3u8 / .mp4 / .mpd)
-# ============================================
-async def get_stream_url(page, item_url):
-    await page.goto(item_url, wait_until="networkidle")
+async def get_stream_url(page, url):
+    await page.goto(url, wait_until="networkidle")
     await page.wait_for_timeout(4000)
 
-    found_streams = []
+    streams = []
 
     def on_request(req):
-        url = req.url
-        if any(ext in url for ext in [".m3u8", ".mp4", ".mpd"]):
-            found_streams.append(url)
+        u = req.url
+        if any(ext in u for ext in [".m3u8", ".mp4", ".mpd"]):
+            streams.append(u)
 
     page.on("request", on_request)
 
     await page.wait_for_timeout(5000)
 
-    return found_streams[0] if found_streams else None
+    return streams[0] if streams else None
 
-
-# ============================================
-# Ambil daftar film dari homepage
-# ============================================
 async def get_movies(page):
     await page.goto(MOVIEBOX_URL, wait_until="networkidle")
-    await page.wait_for_timeout(2000)
+    await page.wait_for_timeout(3000)
 
-    links = await page.query_selector_all("a")
+    # Scroll supaya semua card film muncul
+    await auto_scroll(page)
 
-    results = []
+    cards = await page.query_selector_all("a[href*='/movie/']")
 
-    for link in links:
-        href = await link.get_attribute("href")
-        title = (await link.inner_text() or "").strip()
+    movies = []
+    for c in cards:
+        href = await c.get_attribute("href")
+        title = (await c.inner_text() or "").strip()
 
-        if href and "/movie/" in href and len(title) > 2:
-            results.append({
+        if href and len(title) > 2:
+            movies.append({
                 "title": title,
                 "url": MOVIEBOX_URL + href
             })
 
-    return results
+    return movies
 
-
-# ============================================
-# Build Playlist M3U
-# ============================================
 def build_m3u(items):
     out = ["#EXTM3U"]
-
-    for i in items:
-        if i.get("stream"):
-            out.append(f'#EXTINF:-1 tvg-name="{i["title"]}", {i["title"]}')
-            out.append(i["stream"])
-
+    for x in items:
+        if x.get("stream"):
+            out.append(f'#EXTINF:-1 tvg-name="{x["title"]}", {x["title"]}')
+            out.append(x["stream"])
     return "\n".join(out)
 
-
-# ============================================
-# MAIN SCRIPT
-# ============================================
 async def main():
-    print("▶ Menjalankan MovieBox Scraper...")
+    print("▶ Mengambil data MovieBox...")
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
 
-        print("▶ Mengambil daftar film...")
         movies = await get_movies(page)
-        print(f"✔ Total film ditemukan: {len(movies)}")
 
-        final_items = []
+        print(f"✔ Film ditemukan: {len(movies)}")
 
-        # untuk testing ambil 20 dulu, bisa dilepas
+        results = []
         for m in movies[:20]:
-            print(f"▶ Memproses: {m['title']}")
-            stream = await get_stream_url(page, m["url"])
-            m["stream"] = stream
-            final_items.append(m)
+            print("▶ Ambil stream:", m["title"])
+            m["stream"] = await get_stream_url(page, m["url"])
+            results.append(m)
 
         await browser.close()
 
-    playlist = build_m3u(final_items)
-
+    playlist = build_m3u(results)
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write(playlist)
 
-    print("\n✔ Playlist berhasil dibuat:", OUTPUT_FILE)
+    print("✔ Selesai → mobox.m3u")
 
-
-# RUN
 asyncio.run(main())
