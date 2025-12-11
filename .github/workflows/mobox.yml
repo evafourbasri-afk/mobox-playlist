@@ -1,3 +1,4 @@
+# mobox.yml (Sudah cukup baik, tidak perlu banyak perubahan)
 name: MovieBox Playlist Builder
 
 on:
@@ -30,6 +31,11 @@ jobs:
         run: |
           git config --global user.email "actions@github.com"
           git config --global user.name "GitHub Actions"
-          git add mobox.m3u || true
-          git commit -m "Update MovieBox playlist" || true
-          git push || true
+          # Tambahkan opsi --exit-code agar bisa mengecek status perubahan
+          if git diff --exit-code mobox.m3u; then
+            echo "File mobox.m3u tidak berubah, tidak melakukan commit."
+          else
+            git add mobox.m3u
+            git commit -m "Update MovieBox playlist"
+            git push
+          fi
