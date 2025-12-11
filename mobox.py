@@ -1,4 +1,4 @@
-# mobox.py v4 — Perbaikan Selector & Interaksi
+# mobox.py v5 — Penanganan Redirect ke Lok-lok.cc & Interaksi Baru
 
 import asyncio
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
@@ -12,14 +12,14 @@ async def auto_scroll(page):
         await page.evaluate("window.scrollBy(0, 2000)")
         await page.wait_for_timeout(500)
 
-# --- FUNGSI KRITIS YANG DIPERBAIKI ---
+
 async def get_stream_url(page, url):
     streams = []
 
     # (1) Pindahkan listener request sebelum navigasi
     def on_request(req):
         u = req.url
-        # Filter request streaming yang relevan
+        # Filter request streaming yang relevan (.m3u8, .mp4, .mpd)
         if any(ext in u for ext in [".m3u8", ".mp4", ".mpd"]):
             # Filter iklan
             if "adservice" not in u and "tracking" not in u:
@@ -28,83 +28,126 @@ async def get_stream_url(page, url):
     page.on("request", on_request)
 
     await page.goto(url, wait_until="networkidle")
+    print(f"   - URL saat ini: {page.url}") # Cek apakah sudah redirect
+
+    # (2) Tambahkan waktu tunggu setelah redirect
     await page.wait_for_timeout(3000)
 
     try:
-        # (2) Coba Interaksi Utama
-        # Selector lebih generik untuk pemutar video atau tombol play
+        # (3) Selector yang lebih spesifik untuk pemutar video
+        # Di halaman video player, tombol play biasanya berbentuk ikon atau elemen besar.
+        
+        # Selector umum yang sering digunakan di player (mungkin di iframe atau di halaman utama)
         play_selectors = [
-            'button[aria-label*="Play"]',     # Tombol play yang jelas
-            'div.vjs-control-bar button',    # Pemutar video.js
-            '#player',                       # Elemen player berdasarkan ID umum
-            'video'                          # Elemen video itu sendiri
+            'button.vjs-big-play-button',       # Video.js player
+            'div.play-btn-large',              # Selector umum untuk tombol play besar
+            '#playButton',                     # ID umum
+            'div[role="button"]',              # Elemen yang dapat diklik
+            'video',                           # Coba klik elemen video itu sendiri
+            'div.video-player-container'       # Coba klik container player
         ]
 
         clicked = False
         for selector in play_selectors:
             try:
                 # Menunggu elemen terlihat dan mencoba klik
-                await page.click(selector, timeout=5000, force=True)
+                # Gunakan state="visible" agar Playwright menunggu elemen benar-benar siap
+                await page.wait_for_selector(selector, state="visible", timeout=5000)
+                await page.click(selector, force=True)
                 print(f"   - Berhasil klik dengan selector: {selector}")
                 clicked = True
                 break
             except PlaywrightTimeoutError:
                 continue # Coba selector berikutnya
+            except Exception as e:
+                # Tangani error klik lainnya, misalnya element not interactable
+                print(f"   - Gagal klik {selector}: {e}")
+                continue
         
         if not clicked:
             print("   - Tidak dapat mengklik tombol play utama.")
 
-
-        # (3) Coba Interaksi dalam Iframe (Penting!)
-        # Periksa Iframe dan coba klik di dalamnya jika ada
+        # (4) Coba Interaksi dalam Iframe (Penting untuk Lok-lok)
+        # Seringkali video player berada di dalam Iframe.
         print("   - Mencari Iframe...")
         for frame in page.main_frame().child_frames():
             try:
                 # Coba klik tombol play di dalam Iframe
-                await frame.click('button[aria-label*="Play"], video', timeout=3000, force=True)
+                await frame.click('button[aria-label*="Play"], video, .play-button', timeout=3000, force=True)
                 print("   - Berhasil klik di dalam Iframe.")
                 break
             except PlaywrightTimeoutError:
-                pass # Lanjut ke Iframe berikutnya atau abaikan
+                pass 
+            except Exception:
+                pass
 
     except Exception as e:
-        print(f"   - Error saat interaksi: {e}")
+        print(f"   - Error saat interaksi/klik: {e}")
         pass
 
-    # (4) Beri waktu untuk menangkap request setelah interaksi
-    await page.wait_for_timeout(7000) # Perpanjang waktu tunggu
+    # (5) Beri waktu untuk menangkap request setelah interaksi
+    await page.wait_for_timeout(7000) 
 
     # Hapus listener
     page.remove_listener("request", on_request)
 
-    # (5) Kembalikan URL streaming pertama yang ditemukan
+    # (6) Kembalikan URL streaming pertama yang ditemukan
     return streams[0] if streams else None
-# --- AKHIR PERBAIKAN ---
+# --- AKHIR PERBAIKAN get_stream_url ---
+
+# ... (fungsi get_movies, build_m3u, dan main tetap sama) ...
+# Pastikan Anda menggunakan kode lengkap yang menyertakan perbaikan ini.
 
 async def get_movies(page):
-    # (sisanya sama dengan kode Anda, memastikan penemuan film berfungsi)
+    # Menggunakan kode Anda yang sudah ada, pastikan penemuan film berjalan baik
+    # ... (kode get_movies Anda yang lama) ...
     await page.goto(MOVIEBOX_URL, wait_until="networkidle")
     await page.wait_for_timeout(3000)
-
-    # Scroll supaya semua card film muncul
     await auto_scroll(page)
-
-    # Menggunakan selector yang lebih spesifik jika diperlukan
     cards = await page.query_selector_all("a[href*='/movie/']")
-
     movies = []
     for c in cards:
-        # Mengambil title dari teks di sekitar link
-        title_element = await c.query_selector('h3, p.title, span.title') # Coba beberapa struktur judul umum
-        title = (await title_element.inner_text() if title_element else (await c.inner_text() or "")).strip()
-        
         href = await c.get_attribute("href")
-        
+        title_element = await c.query_selector('h3, p.title, span.title')
+        title = (await title_element.inner_text() if title_element else (await c.inner_text() or "")).strip()
         if href and len(title) > 2:
             movies.append({
                 "title": title,
                 "url": MOVIEBOX_URL + href
             })
+    return movies
+
+def build_m3u(items):
+    out = ["#EXTM3U"]
+    for x in items:
+        if x.get("stream"):
+            out.append(f'#EXTINF:-1 tvg-name="{x["title"]}", {x["title"]}')
+            out.append(x["stream"])
+    return "\n".join(out)
+
+async def main():
+    print("▶ Mengambil data MovieBox...")
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        movies = await get_movies(page)
+        print(f"✔ Film ditemukan: {len(movies)}")
+        results = []
+        for m in movies[:10]:
+            print("▶ Ambil stream:", m["title"])
+            m["stream"] = await get_stream_url(page, m["url"])
+            if m["stream"]:
+                print(f"   - BERHASIL: {m['stream']}")
+            else:
+                print("   - GAGAL mendapatkan URL stream.")
+            results.append(m)
+        await browser.close()
+    playlist = build_m3u(results)
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        f.write(playlist)
+    print(f"\n✔ Selesai → {OUTPUT_FILE}")
+
+asyncio.run(main())
 
     return movies
 
