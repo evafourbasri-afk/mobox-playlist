@@ -1,4 +1,4 @@
-# mobox.py v10 — Versi Paling Robust (Mengatasi Trailer, Timeout, API Calls)
+# mobox.py v11 — Versi Final (Targeting Server Alternatif untuk Film Penuh)
 
 import asyncio
 import re
@@ -40,7 +40,7 @@ def build_m3u(items):
 
 async def get_stream_url(page, url):
     streams = []
-    candidate_requests = [] # Daftar untuk menampung request XHR/Fetch
+    candidate_requests = [] 
 
     # Listener untuk menangkap request jaringan
     def on_request(req):
@@ -56,7 +56,7 @@ async def get_stream_url(page, url):
 
     page.on("request", on_request)
 
-    # PERBAIKAN: Mengubah wait_until untuk menghindari timeout (V9/V10)
+    # Navigasi dengan wait_until yang lebih stabil
     await page.goto(url, wait_until="domcontentloaded") 
     print(f"   - URL Redirect: {page.url}")
     await page.wait_for_timeout(3000)
@@ -65,12 +65,8 @@ async def get_stream_url(page, url):
         # Lakukan interaksi pertama (memicu player default/trailer)
         print("   - Mencoba klik pemutar video (default)...")
         play_selectors = [
-            'button[aria-label*="Play"]', 
-            'div.vjs-big-play-button',       
-            '#playButton',                     
-            'video',
-            'div[role="button"]',
-            'div.player-wrapper'
+            'button[aria-label*="Play"]', 'div.vjs-big-play-button',       
+            '#playButton', 'video', 'div[role="button"]', 'div.player-wrapper'
         ]
         
         clicked = False
@@ -79,44 +75,40 @@ async def get_stream_url(page, url):
                 await page.click(selector, timeout=2000, force=True)
                 clicked = True
                 break
-            except PlaywrightTimeoutError:
-                continue
             except Exception:
                 continue
-
-        # --- PERBAIKAN V10: MENCARI SUMBER FILM UTAMA ---
-        print("   - Mencari tombol 'Full Movie' atau Source Selector...")
         
-        main_content_selectors = [
-            'button:has-text("Play Movie")', 
-            'a:has-text("Full Movie")',      
-            'div.source-selector a',         
-            'button.source-btn',
-            'a[id*="source"]',
-            'button[id*="source"]'
+        # --- PERBAIKAN V11: MENCARI SERVER ALTERNATIF ---
+        print("   - Mencari tombol Server/Source Alternatif...")
+        
+        # Selector untuk tombol server/sumber yang berbeda (seringkali Server 2 adalah film penuh)
+        server_selectors = [
+            'button[data-server="2"]',           # Server 2 (umum)
+            'div.server-list button:nth-child(2)', # Tombol kedua di daftar server
+            'a:has-text("Server 2")',
+            'div[class*="source-item"]:nth-child(2)', # Item sumber kedua
         ]
         
-        clicked_main = False
-        for selector in main_content_selectors:
+        clicked_server = False
+        for selector in server_selectors:
             try:
+                # Coba klik server atau sumber streaming alternatif
                 await page.click(selector, timeout=3000, force=True)
-                print(f"   - Berhasil mengklik sumber utama: {selector}")
-                clicked_main = True
+                print(f"   - Berhasil mengklik Server/Source alternatif: {selector}")
+                clicked_server = True
                 break
-            except PlaywrightTimeoutError:
-                continue
             except Exception:
                 continue
         
-        if not clicked_main:
-            print("   - Sumber utama tidak ditemukan, mengandalkan stream yang sudah ada.")
+        if not clicked_server:
+             print("   - Server/Source alternatif tidak ditemukan.")
 
     except Exception as e:
         print(f"   - Error saat interaksi/klik: {e}")
         pass
 
-    # Beri waktu lebih lama untuk request baru setelah klik sumber utama
-    await page.wait_for_timeout(10000) # Tunggu 10 detik
+    # Beri waktu lebih lama untuk request baru setelah klik sumber utama (10 detik)
+    await page.wait_for_timeout(10000) 
 
     # --- Pengecekan Respons API (Strategi Agresif) ---
     print(f"   - Memeriksa {len(candidate_requests)} request API/XHR...")
@@ -126,25 +118,21 @@ async def get_stream_url(page, url):
             if response and response.status == 200:
                 text = await response.text()
                 
-                # Cari string media di dalam body respons
                 if ".m3u8" in text or ".mp4" in text:
                     print(f"   - Ditemukan string media di respons dari: {req.url}")
                     
-                    # Mencari pola URL streaming lengkap menggunakan Regex
                     found_urls = re.findall(r'(https?:\/\/[^\s"\']*\.(?:m3u8|mp4|mpd|ts)[^\s"\']*)', text)
                     
                     for fu in found_urls:
-                        # Filter URL iklan/thumbnail
                         if "thumb" not in fu and "ad" not in fu and "tracking" not in fu:
                             streams.append(fu)
 
         except Exception:
-            # Mengabaikan request yang gagal diambil responsnya
             pass
 
     page.remove_listener("request", on_request)
 
-    # Kembalikan URL streaming terbaik (terpanjang/paling kompleks)
+    # Kembalikan URL streaming terbaik
     if streams:
         unique_streams = list(set(streams))
         unique_streams.sort(key=len, reverse=True) 
@@ -159,7 +147,6 @@ async def get_movies(page):
     await page.goto(MOVIEBOX_URL, wait_until="load")
     
     try:
-        # Tunggu elemen utama terlihat
         await page.wait_for_selector("div.movie-list, div.row, main", state="visible", timeout=15000)
         print("   - Elemen utama halaman berhasil dimuat.")
     except PlaywrightTimeoutError:
@@ -169,11 +156,9 @@ async def get_movies(page):
     print("   - Melakukan scroll untuk lazy-loading...")
     await auto_scroll(page)
 
-    # Selector Catch-all yang berhasil menemukan 374 film
+    # Selector yang berhasil menemukan 374 film
     cards = await page.query_selector_all(
-        "a[href*='/movie/'], " +     
-        "a[href*='/detail?id='], " + 
-        "a:has(img)"                 
+        "a[href*='/movie/'], " + "a[href*='/detail?id='], " + "a:has(img)"                 
     )
     
     movies = []
@@ -214,7 +199,7 @@ async def main():
         print(f"✔ Film ditemukan: {len(movies)}")
         
         results = []
-        # Batasi ke 10 film untuk proses debugging cepat (atur ke len(movies) untuk semua)
+        # Batasi ke 10 film untuk proses debugging cepat (ubah sesuai kebutuhan)
         for m in movies[:10]:
             print("▶ Ambil stream:", m["title"])
             m["stream"] = await get_stream_url(page, m["url"]) 
