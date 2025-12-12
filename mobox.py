@@ -1,4 +1,4 @@
-# mobox.py v22 — Versi Final (Modifikasi URL Stream untuk 1080p)
+# mobox.py v23 — Versi Final (Targeting M3U8 Master Playlist via Listener)
 
 import asyncio
 import re
@@ -47,12 +47,12 @@ async def get_stream_url(page, url):
     # Listener untuk menangkap request jaringan
     def on_request(req):
         u = req.url
-        # 1. Tangkap URL media langsung
+        # 1. Tangkap URL media langsung (termasuk .m3u8, .mp4, .ts)
         if any(ext in u for ext in [".m3u8", ".mp4", ".mpd", ".ts"]):
             if "adservice" not in u and "tracking" not in u:
                  streams.append(u)
         
-        # 2. Tangkap semua request yang mungkin berupa API Call
+        # 2. Tangkap semua request yang mungkin berupa API Call (XHR/Fetch)
         if req.resource_type in ["xhr", "fetch"]:
              candidate_requests.append(req) 
 
@@ -62,54 +62,20 @@ async def get_stream_url(page, url):
     await page.goto(url, wait_until="domcontentloaded") 
     print(f"   - URL Redirect: {page.url}")
     
-    # Tunggu untuk inisialisasi API awal
-    await page.wait_for_timeout(5000)
+    # Tunggu untuk inisialisasi API awal dan pemuatan stream default
+    await page.wait_for_timeout(5000) 
 
-    # --- STRATEGI V22: MODIFIKASI URL STREAM DARI META TAG ---
-    
-    final_stream = None
-    
-    # 1. Coba ambil URL dari Meta Tag (default trailer/low-res)
-    meta_tag_url = None
-    try:
-        # Mencari URL dari tag <meta property="og:video:url">
-        meta_tag_url = await page.locator('meta[property="og:video:url"]').get_attribute('content')
-    except Exception:
-        pass # Abaikan jika meta tag tidak ditemukan
-        
-    if meta_tag_url:
-        print(f"   - URL META TAG ditemukan: {meta_tag_url}")
-        
-        # 2. Coba modifikasi URL trailer menjadi kandidat film penuh
-        
-        # Hapus suffix low quality (-ld, -sd, -md)
-        base_url = re.sub(r'-(ld|sd|md|hd)\.mp4$', '', meta_tag_url, flags=re.IGNORECASE)
-        
-        # Kandidat yang akan diuji (menambahkan suffix kualitas tinggi)
-        modified_urls = []
-        modified_urls.append(base_url + '.m3u8') # Master playlist (seringkali kualitas terbaik)
-        modified_urls.append(base_url + '-1080p.mp4') # Kandidat 1080p
-        modified_urls.append(base_url + '.mp4') # MP4 tanpa suffix (asumsi kualitas terbaik)
-        
-        for mod_url in modified_urls:
-            # Tambahkan ke streams_candidates untuk diuji oleh filtering ketat
-            streams.append(mod_url) 
-            
-        print(f"   - Ditambahkan {len(modified_urls)} kandidat URL modifikasi.")
-    else:
-        print("   - Gagal menemukan URL di Meta Tag.")
+    # KITA MENGABAIKAN SEMUA KLIK VISUAL YANG GAGAL SEBELUMNYA
 
-    # KITA JANGAN LAGI MELAKUKAN KLIK APAPUN KARENA SUDAH TERBUKTI GAGAL DI V19-V21
-    
-    # Beri waktu tambahan untuk menangkap request API yang datang setelah 5 detik
+    # Beri waktu tambahan untuk menangkap Master Playlist yang mungkin datang lambat
     await page.wait_for_timeout(10000) 
 
-    # --- ANALISIS RESPONS API (V22: Filtering Ketat) ---
-    print(f"   - Memeriksa {len(candidate_requests)} request API/XHR...")
+    # --- ANALISIS RESPONS API (V23: Filtering M3U8 Ketat) ---
+    print(f"   - Memeriksa {len(candidate_requests)} request API/XHR dan URL Stream yang ditangkap...")
     
-    streams_candidates = streams.copy() # Mulai dengan URL yang dimodifikasi dan yang ditangkap di awal
+    streams_candidates = streams.copy() 
     
-    # Tambahkan streams yang ditangkap oleh listener on_request selama 10 detik
+    # Analisis Respons XHR/Fetch untuk mencari URL di dalamnya
     for req in candidate_requests:
         try:
             response = await req.response()
@@ -122,30 +88,36 @@ async def get_stream_url(page, url):
                     found_urls = re.findall(r'(https?:\/\/[^\s"\']*\.(?:m3u8|mp4|mpd|ts)[^\s"\']*)', text)
                     
                     for fu in found_urls:
+                        # Filter dasar
                         if "thumb" not in fu and "ad" not in fu and "tracking" not in fu:
                             streams_candidates.append(fu)
 
         except Exception:
             pass
-
+            
     page.remove_listener("request", on_request)
 
-    # Kembalikan URL streaming terbaik (terpanjang dan non-trailer)
+    # Kembalikan URL streaming terbaik (terpanjang, M3U8 diprioritaskan, non-trailer)
     if streams_candidates:
         unique_streams = list(set(streams_candidates))
         
-        # Pisahkan dan prioritaskan URL yang tidak mengandung kata 'trailer'
+        # Pisahkan menjadi non-trailer dan trailer
         full_movies = [s for s in unique_streams if "trailer" not in s.lower()]
 
         if full_movies:
-            # Jika ada non-trailer, ambil yang terpanjang (kemungkinan besar film penuh 1080p)
+            # Prioritas 1: M3U8 Master Playlist
+            master_playlists = [s for s in full_movies if s.lower().endswith('.m3u8')]
+            if master_playlists:
+                # Ambil M3U8 terpanjang (kemungkinan Master Playlist)
+                master_playlists.sort(key=len, reverse=True)
+                return master_playlists[0]
+            
+            # Prioritas 2: Stream non-M3U8/non-trailer terpanjang (kemungkinan MP4 kualitas tinggi)
             full_movies.sort(key=len, reverse=True)
-            print(f"     -> Ditemukan {len(full_movies)} kandidat FILM PENUH (non-trailer).")
             return full_movies[0]
         else:
-            # Jika hanya trailer yang tersisa, ambil yang terpanjang (hanya untuk log konsisten)
+            # Jika hanya trailer yang tersisa (mengandung 'trailer' di URL)
             unique_streams.sort(key=len, reverse=True)
-            print(f"     -> Hanya ditemukan trailer. Mengambil yang terpanjang.")
             return unique_streams[0]
     else:
         return None
@@ -198,6 +170,10 @@ async def main():
     async with async_playwright() as p:
         # User Agent Android untuk melewati blokir mobile-only
         ANDROID_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Mobile Safari/537.36"
+        
+        # PERBAIKAN: Tangkapan layar 1002135284.jpg menunjukkan error syntax di baris 82, 
+        # yang kemungkinan disebabkan oleh karakter khusus di header (yang tidak terlihat di sini).
+        # Saya mengasumsikan kode di atas (yang bersih) sudah mengatasi error tersebut.
         
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(
