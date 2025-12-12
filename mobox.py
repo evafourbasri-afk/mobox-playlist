@@ -1,4 +1,4 @@
-# mobox.py v25 — Target Spesifik "lklk" / "Netflix" & Overlay Killer
+# mobox.py v24 — "The Overlay Killer" & Source Tab Clicker (Revisi)
 
 import asyncio
 import re
@@ -36,11 +36,11 @@ def build_m3u(items):
 async def get_stream_url(page, url):
     streams = []
     
-    # Listener request
+    # Listener request (Fokus M3U8/MP4)
     def on_request(req):
         u = req.url
-        # Tangkap M3U8, MP4, MPD
         if any(ext in u for ext in [".m3u8", ".mp4", ".mpd"]):
+            # Pastikan bukan iklan/tracking
             if "adservice" not in u and "tracking" not in u and "google" not in u:
                  streams.append(u)
 
@@ -51,81 +51,82 @@ async def get_stream_url(page, url):
     await page.wait_for_timeout(4000)
 
     try:
-        # --- STRATEGI V25: HAPUS OVERLAY & KLIK TEKS SUMBER SPESIFIK ---
-        
-        # 1. Inject CSS untuk mematikan overlay (Iklan/QR)
+        # 1. Inject CSS (Overlay Killer)
+        print("   - Inject CSS untuk menyembunyikan overlay/iklan...")
         await page.add_style_tag(content="""
-            .pc-scan-qr, .pc-download-content, .h5-detail-banner, 
-            div[class*="dialog"], div[class*="overlay"], .footer-box { 
-                display: none !important; z-index: -9999 !important; pointer-events: none !important;
+            div[class*="dialog"], div[class*="modal"], div[class*="overlay"], 
+            div[class*="popup"], .pc-scan-qr, .pc-download-content, 
+            .h5-detail-banner, .footer-box { 
+                display: none !important; 
+                visibility: hidden !important;
+                pointer-events: none !important;
+                z-index: -9999 !important;
             }
         """)
-
-        print("   - Mencoba klik Tab Sumber Spesifik (lklk / Netflix)...")
         
-        # 2. Klik berdasarkan TEKS yang ditemukan di source.txt
-        # Urutan prioritas: lklk -> Netflix -> Plex -> Watch Online
-        target_texts = ["lklk", "Netflix", "Plex", "Watch Online"]
+        # 2. Klik Tab Sumber (Penting!)
+        print("   - Mencoba klik Tab Sumber (selain default)...")
         
-        clicked = False
-        for text in target_texts:
+        # Coba klik tab sumber ke-2 (Contoh: 'lklk' atau 'Netflix')
+        try:
+            # Mengklik elemen kedua di daftar sumber (indeks 1)
+            await page.click('.type-item:nth-child(2)', timeout=3000, force=True)
+            print("   - Berhasil klik Tab Sumber ke-2.")
+        except PlaywrightTimeoutError:
+            print("   - Gagal klik Tab Sumber ke-2, mencoba tombol Watch Online.")
+            # Fallback ke tombol Watch Online 
             try:
-                # Cari elemen yang berisi teks tersebut
-                # Gunakan locator yang presisi untuk teks di dalam span atau div
-                locator = page.locator(f"span:text-is('{text}'), div:text-is('{text}'), h3:text-is('{text}')").first
-                
-                if await locator.is_visible():
-                    print(f"   - Menemukan tombol sumber: {text}")
-                    await locator.click(force=True)
-                    print(f"   - BERHASIL KLIK: {text}")
-                    clicked = True
-                    break
-            except Exception:
-                continue
-        
-        if not clicked:
-            print("   - Gagal klik teks spesifik. Mencoba klik tombol 'Watch' umum...")
-            try:
-                # Fallback ke class watch-btn
-                await page.click('.watch-btn, .pc-watch-btn', timeout=2000, force=True)
-            except:
+                await page.click('.pc-watch-btn, .watch-btn, .pc-btn', timeout=3000, force=True)
+                print("   - Berhasil klik tombol Watch Online.")
+            except PlaywrightTimeoutError:
+                print("   - Gagal klik tombol interaksi.")
                 pass
-
-        # Tunggu stream baru dimuat
-        await page.wait_for_timeout(10000) 
+        
+        # Tunggu request M3U8/MP4 muncul setelah interaksi (diberi jeda lebih lama)
+        await page.wait_for_timeout(15000) 
 
     except Exception as e:
-        print(f"   - Error interaksi: {e}")
+        print(f"   - Error proses interaksi: {e}")
         pass
 
     page.remove_listener("request", on_request)
 
-    # --- FILTERING HASIL V25 ---
+    # 3. Filtering Hasil yang Ditingkatkan (Mencari Full Stream)
     if streams:
         unique_streams = list(set(streams))
         
-        # 1. Cari M3U8 (Master Playlist)
-        m3u8_lists = [s for s in unique_streams if ".m3u8" in s]
-        if m3u8_lists:
-            # Urutkan berdasarkan panjang URL
-            m3u8_lists.sort(key=len, reverse=True)
-            print(f"     -> Ditemukan M3U8: {m3u8_lists[0]}")
-            return m3u8_lists[0]
+        # Prioritas 1: Stream Kualitas Tinggi/Master Playlist (bukan trailer dan non-ld)
+        high_quality = [
+            s for s in unique_streams 
+            if "-ld.mp4" not in s and "trailer" not in s.lower() and s.endswith(".m3u8")
+        ]
+        if high_quality:
+            high_quality.sort(key=len, reverse=True) # Ambil yang terpanjang/terkompleks
+            print(f"     -> Ditemukan M3U8 Kualitas Tinggi: {high_quality[0]}")
+            return high_quality[0]
 
-        # 2. Cari MP4 (Non-Trailer)
-        # Filter URL yang mengandung "-ld.mp4" (Low Definition) atau "trailer"
-        mp4_lists = [s for s in unique_streams if ".mp4" in s]
-        full_movies = [s for s in mp4_lists if "-ld.mp4" not in s and "trailer" not in s.lower()]
-        
-        if full_movies:
-            full_movies.sort(key=len, reverse=True)
-            print(f"     -> Ditemukan MP4 Full: {full_movies[0]}")
-            return full_movies[0]
+        # Prioritas 2: MP4 Kualitas Tinggi (bukan trailer dan non-ld)
+        full_movies_mp4 = [
+            s for s in unique_streams 
+            if "-ld.mp4" not in s and "trailer" not in s.lower() and s.endswith(".mp4")
+        ]
+        if full_movies_mp4:
+            full_movies_mp4.sort(key=len, reverse=True)
+            print(f"     -> Ditemukan MP4 Full: {full_movies_mp4[0]}")
+            return full_movies_mp4[0]
             
-        # 3. Fallback (Trailer) jika tidak ada yang lain
-        if mp4_lists:
-            mp4_lists.sort(key=len, reverse=True)
-            return mp4_lists[0]
+        # Prioritas 3: Semua M3U8 (Fallback)
+        m3u8_fallback = [s for s in unique_streams if s.endswith(".m3u8")]
+        if m3u8_fallback:
+             m3u8_fallback.sort(key=len, reverse=True)
+             print(f"     -> Fallback ke M3U8: {m3u8_fallback[0]}")
+             return m3u8_fallback[0]
+
+        # Prioritas 4: Semua MP4 (Termasuk Trailer dan LD)
+        if unique_streams:
+            unique_streams.sort(key=len, reverse=True)
+            print(f"     -> Fallback ke Stream Apapun: {unique_streams[0]}")
+            return unique_streams[0]
 
     return None
 
@@ -169,7 +170,7 @@ async def get_movies(page):
 async def main():
     print("▶ Mengambil data MovieBox...")
     async with async_playwright() as p:
-        # User Agent Android
+        # User Agent Android (Penting untuk struktur mobile)
         ANDROID_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Mobile Safari/537.36"
         
         browser = await p.chromium.launch(headless=True)
