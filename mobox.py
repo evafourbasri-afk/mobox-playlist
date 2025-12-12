@@ -1,17 +1,22 @@
-# mobox.py v9 — Perbaikan NameError dan Logika Scraping Agresif
+# mobox.py v9 — Versi Paling Robust (Mengatasi Timeout, API Calls, dan NameError)
 
 import asyncio
 import re
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
+# --- KONSTANTA ---
 MOVIEBOX_URL = "https://moviebox.ph"
 OUTPUT_FILE = "mobox.m3u"
+
+# --- FUNGSI UTILITY ---
 
 async def auto_scroll(page):
     """Scroll perlahan dan cek sampai ketinggian halaman tidak bertambah lagi."""
     last_height = await page.evaluate("document.body.scrollHeight")
+    print("   - Memulai Auto Scroll...")
     for i in range(30):
-        await page.evaluate("window.scrollBy(0, 2000)")
+        # Scroll 2000px per iterasi
+        await page.evaluate("window.scrollBy(0, 2000)") 
         await page.wait_for_timeout(1000)
 
         new_height = await page.evaluate("document.body.scrollHeight")
@@ -22,11 +27,22 @@ async def auto_scroll(page):
         
         last_height = new_height
 
-# --- DEFINISI FUNGSI get_stream_url (KRITIS) ---
+def build_m3u(items):
+    out = ["#EXTM3U"]
+    for x in items:
+        if x.get("stream"):
+            out.append(f'#EXTINF:-1 tvg-name="{x["title"]}", {x["title"]}')
+            out.append(x["stream"])
+    return "\n".join(out)
+
+
+# --- FUNGSI PENGAMBIL STREAM ---
+
 async def get_stream_url(page, url):
     streams = []
     candidate_requests = [] # Daftar untuk menampung request XHR/Fetch
 
+    # Listener untuk menangkap request jaringan
     def on_request(req):
         u = req.url
         # 1. Tangkap URL media langsung
@@ -40,7 +56,8 @@ async def get_stream_url(page, url):
 
     page.on("request", on_request)
 
-    await page.goto(url, wait_until="networkidle")
+    # PERBAIKAN: Mengubah wait_until dari "networkidle" (yang sering timeout) menjadi "domcontentloaded"
+    await page.goto(url, wait_until="domcontentloaded") 
     print(f"   - URL Redirect: {page.url}")
     await page.wait_for_timeout(3000)
 
@@ -58,6 +75,7 @@ async def get_stream_url(page, url):
         ]
         
         clicked = False
+        # Interaksi utama
         for selector in play_selectors:
             try:
                 await page.click(selector, timeout=2000, force=True)
@@ -82,7 +100,6 @@ async def get_stream_url(page, url):
         else:
             print("   - Gagal interaksi, mengandalkan autoplay.")
 
-
     except Exception as e:
         print(f"   - Error saat interaksi/klik: {e}")
         pass
@@ -90,7 +107,7 @@ async def get_stream_url(page, url):
     # Beri waktu untuk request selesai
     await page.wait_for_timeout(7000) 
 
-    # --- Memeriksa Respons API ---
+    # --- Pengecekan Respons API (Strategi Agresif) ---
     print(f"   - Memeriksa {len(candidate_requests)} request API/XHR...")
     for req in candidate_requests:
         try:
@@ -98,36 +115,40 @@ async def get_stream_url(page, url):
             if response and response.status == 200:
                 text = await response.text()
                 
+                # Cari string media di dalam body respons
                 if ".m3u8" in text or ".mp4" in text:
                     print(f"   - Ditemukan string media di respons dari: {req.url}")
                     
-                    # Mencari pola URL streaming lengkap
+                    # Mencari pola URL streaming lengkap menggunakan Regex
                     found_urls = re.findall(r'(https?:\/\/[^\s"\']*\.(?:m3u8|mp4|mpd|ts)[^\s"\']*)', text)
                     
                     for fu in found_urls:
+                        # Filter URL iklan/thumbnail
                         if "thumb" not in fu and "ad" not in fu and "tracking" not in fu:
                             streams.append(fu)
 
-        except Exception as e:
+        except Exception:
+            # Mengabaikan request yang gagal diambil responsnya
             pass
 
     page.remove_listener("request", on_request)
 
-    # Kembalikan URL streaming terbaik
+    # Kembalikan URL streaming terbaik (terpanjang/paling kompleks)
     if streams:
         unique_streams = list(set(streams))
         unique_streams.sort(key=len, reverse=True) 
         return unique_streams[0]
     else:
         return None
-# --- AKHIR DEFINISI get_stream_url ---
 
+# --- FUNGSI PENGAMBIL FILM (TERBUKTI BERHASIL) ---
 
 async def get_movies(page):
     print("   - Mengunjungi halaman utama...")
     await page.goto(MOVIEBOX_URL, wait_until="load")
     
     try:
+        # Tunggu elemen utama terlihat
         await page.wait_for_selector("div.movie-list, div.row, main", state="visible", timeout=15000)
         print("   - Elemen utama halaman berhasil dimuat.")
     except PlaywrightTimeoutError:
@@ -137,7 +158,7 @@ async def get_movies(page):
     print("   - Melakukan scroll untuk lazy-loading...")
     await auto_scroll(page)
 
-    # Selector Catch-all yang berhasil menemukan 374 film sebelumnya
+    # Selector Catch-all yang berhasil menemukan 374 film
     cards = await page.query_selector_all(
         "a[href*='/movie/'], " +     
         "a[href*='/detail?id='], " + 
@@ -165,13 +186,7 @@ async def get_movies(page):
 
     return movies
 
-def build_m3u(items):
-    out = ["#EXTM3U"]
-    for x in items:
-        if x.get("stream"):
-            out.append(f'#EXTINF:-1 tvg-name="{x["title"]}", {x["title"]}')
-            out.append(x["stream"])
-    return "\n".join(out)
+# --- FUNGSI UTAMA ---
 
 async def main():
     print("▶ Mengambil data MovieBox...")
@@ -188,10 +203,9 @@ async def main():
         print(f"✔ Film ditemukan: {len(movies)}")
         
         results = []
-        # Batasi ke 10 film untuk proses debugging cepat
+        # Batasi ke 10 film untuk proses debugging cepat (ubah sesuai kebutuhan)
         for m in movies[:10]:
             print("▶ Ambil stream:", m["title"])
-            # BARIS INI KINI BENAR KARENA get_stream_url SUDAH DIDEFINISIKAN SEBELUMNYA
             m["stream"] = await get_stream_url(page, m["url"]) 
             if m["stream"]:
                 print(f"   - BERHASIL mendapatkan URL stream.")
