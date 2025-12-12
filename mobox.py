@@ -1,4 +1,4 @@
-# mobox.py v12 — Versi Final (User Agent Mobile & Server Alternatif)
+# mobox.py v13 — Versi Final (User Agent Mobile & Server Selector Paling Agresif)
 
 import asyncio
 import re
@@ -78,30 +78,37 @@ async def get_stream_url(page, url):
             except Exception:
                 continue
         
-        # --- STRATEGI SERVER ALTERNATIF ---
+        # --- STRATEGI SERVER ALTERNATIF (V13) ---
         print("   - Mencari tombol Server/Source Alternatif...")
         
-        # Selector untuk tombol server/sumber yang berbeda (seringkali Server 2 adalah film penuh)
+        # Selector yang mencoba Server 2 atau tombol yang memuat konten penuh
         server_selectors = [
-            'button[data-server="2"]',           # Server 2 (umum)
+            'button[data-server="2"]',           # Umum: Tombol data-server="2"
+            'a[data-server="2"]',                # Umum: Link data-server="2"
             'div.server-list button:nth-child(2)', # Tombol kedua di daftar server
-            'a:has-text("Server 2")',
-            'div[class*="source-item"]:nth-child(2)', # Item sumber kedua
+            'a:has-text("Server 2")',            # Link dengan teks "Server 2"
+            'button:has-text("Server 2")',       # Tombol dengan teks "Server 2"
+            'button:has-text("2")',              # Tombol apapun dengan teks "2"
+            'div[class*="source-item"]:nth-child(2) a', # Link di item sumber kedua
+            'div[class*="source-item"]:nth-child(2) button', # Tombol di item sumber kedua
         ]
         
         clicked_server = False
         for selector in server_selectors:
             try:
-                # Coba klik server atau sumber streaming alternatif
-                await page.click(selector, timeout=3000, force=True)
+                # Menunggu elemen muncul dan mencoba klik
+                await page.wait_for_selector(selector, state="visible", timeout=3000)
+                await page.click(selector, timeout=2000, force=True)
                 print(f"   - Berhasil mengklik Server/Source alternatif: {selector}")
                 clicked_server = True
                 break
+            except PlaywrightTimeoutError:
+                continue
             except Exception:
                 continue
         
         if not clicked_server:
-             print("   - Server/Source alternatif tidak ditemukan.")
+             print("   - Gagal mengklik Server/Source alternatif, mengandalkan trailer stream.")
 
     except Exception as e:
         print(f"   - Error saat interaksi/klik: {e}")
@@ -156,7 +163,6 @@ async def get_movies(page):
     print("   - Melakukan scroll untuk lazy-loading...")
     await auto_scroll(page)
 
-    # Selector yang berhasil menemukan 374 film
     cards = await page.query_selector_all(
         "a[href*='/movie/'], " + "a[href*='/detail?id='], " + "a:has(img)"                 
     )
@@ -187,7 +193,7 @@ async def get_movies(page):
 async def main():
     print("▶ Mengambil data MovieBox...")
     async with async_playwright() as p:
-        # PERBAIKAN V12: Menggunakan User Agent Android untuk melewati blokir mobile-only
+        # PERBAIKAN V12/V13: Menggunakan User Agent Android untuk melewati blokir mobile-only
         ANDROID_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Mobile Safari/537.36"
         
         browser = await p.chromium.launch(headless=True)
