@@ -1,4 +1,4 @@
-# mobox.py v25 — "Human Interaction Mimicry" (Final Attempt)
+# mobox.py v26 — Target Specific Source Tabs
 
 import asyncio
 import re
@@ -69,35 +69,48 @@ async def get_stream_url(page, url):
             }
         """)
         
-        # 2. Rangkaian Interaksi (Simulasi Manusia)
-        print("   - Memulai rangkaian interaksi simulasi manusia...")
+        # 2. Rangkaian Interaksi (Targeting Sumber Spesifik)
+        print("   - Memulai rangkaian interaksi: Target Sumber Spesifik...")
         
-        # A. Coba klik tombol utama "Watch Online"
+        interaction_success = False
+
+        # Mencoba klik Tab Sumber dengan teks 'film' (yang merupakan sumber kedua)
         try:
-            await page.click('.pc-watch-btn, .watch-btn', timeout=3000, force=True)
-            print("     -> Berhasil klik tombol Watch Online.")
+            # Selector: Cari div dengan class .type-item atau .source-tab yang berisi teks 'film'
+            film_tab_locator = page.locator('.type-item:has(span:text-is("film")), .source-tab:has(span:text-is("film"))')
+            if await film_tab_locator.count() > 0:
+                await film_tab_locator.focus()
+                await page.wait_for_timeout(1000)
+                await film_tab_locator.click(force=True, timeout=5000)
+                print("     -> Berhasil klik Tab Sumber 'film' dengan Fokus.")
+                interaction_success = True
         except PlaywrightTimeoutError:
             pass
-            
-        await page.wait_for_timeout(1000)
+
+        # Jika belum berhasil, coba klik tab 'Netflix' sebagai alternatif
+        if not interaction_success:
+            try:
+                netflix_tab_locator = page.locator('.type-item:has(span:text-is("Netflix")), .source-tab:has(span:text-is("Netflix"))')
+                if await netflix_tab_locator.count() > 0:
+                    await netflix_tab_locator.focus()
+                    await page.wait_for_timeout(1000)
+                    await netflix_tab_locator.click(force=True, timeout=5000)
+                    print("     -> Berhasil klik Tab Sumber 'Netflix' dengan Fokus.")
+                    interaction_success = True
+            except PlaywrightTimeoutError:
+                pass
+
+        # Fallback ke tombol Watch Online jika sumber spesifik gagal diklik
+        if not interaction_success:
+             try:
+                await page.click('.pc-watch-btn, .watch-btn', timeout=3000, force=True)
+                print("     -> Fallback: Berhasil klik tombol Watch Online.")
+                interaction_success = True
+             except PlaywrightTimeoutError:
+                print("     -> Gagal semua interaksi.")
+                pass
         
-        # B. Coba klik tab sumber ke-2 (jika ada) dengan fokus paksa
-        try:
-            source_tab_locator = page.locator('.type-item:nth-child(2), .source-tab:nth-child(2)')
-            if await source_tab_locator.count() > 0:
-                await source_tab_locator.focus()
-                await page.wait_for_timeout(500)
-                await source_tab_locator.click(force=True, timeout=3000)
-                print("     -> Berhasil klik Tab Sumber ke-2 dengan Fokus.")
-        except PlaywrightTimeoutError:
-            pass
-            
-        await page.wait_for_timeout(1000)
-        
-        # C. Scroll sedikit untuk memastikan pemuatan dipicu (mimik aktivitas pengguna)
-        await page.evaluate("window.scrollBy(0, 50)")
-        
-        # Tunggu request M3U8/MP4 muncul setelah interaksi (15 detik sudah baik)
+        # Tunggu request M3U8/MP4 muncul setelah interaksi
         await page.wait_for_timeout(15000) 
 
     except Exception as e:
