@@ -1,4 +1,4 @@
-# mobox.py v14 — Versi Final (Double-Click Strategi untuk Film Penuh)
+# mobox.py v16 — Versi Final (Injeksi JS untuk Server Switch)
 
 import asyncio
 import re
@@ -7,7 +7,7 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 # --- KONSTANTA ---
 MOVIEBOX_URL = "https://moviebox.ph"
 OUTPUT_FILE = "mobox.m3u"
-# Tetapkan limit untuk testing (mengambil 10 film pertama)
+# Batas untuk testing (mengambil 10 film pertama)
 TEST_LIMIT = 10 
 
 # --- FUNGSI UTILITY ---
@@ -17,7 +17,6 @@ async def auto_scroll(page):
     last_height = await page.evaluate("document.body.scrollHeight")
     print("   - Memulai Auto Scroll...")
     for i in range(30):
-        # Scroll 2000px per iterasi
         await page.evaluate("window.scrollBy(0, 2000)") 
         await page.wait_for_timeout(1000)
 
@@ -61,102 +60,71 @@ async def get_stream_url(page, url):
     # Navigasi dengan wait_until yang lebih stabil
     await page.goto(url, wait_until="domcontentloaded") 
     print(f"   - URL Redirect: {page.url}")
+    
+    # Beri waktu untuk JS memuat API awal
     await page.wait_for_timeout(3000)
 
     try:
-        # Lakukan interaksi pertama (memicu player default/trailer)
-        print("   - Mencoba klik pemutar video (default)...")
-        play_selectors = [
-            'button[aria-label*="Play"]', 'div.vjs-big-play-button',       
-            '#playButton', 'video', 'div[role="button"]', 'div.player-wrapper'
-        ]
+        # --- STRATEGI V16: INJEKSI JAVASCRIPT UNTUK MENGGANTI SUMBER ---
+        print("   - Mencoba injeksi JavaScript untuk mengganti sumber/kualitas...")
+
+        # KITA MELEWATI KLIK VISUAL YANG GAGAL
         
-        clicked = False
-        for selector in play_selectors:
-            try:
-                await page.click(selector, timeout=2000, force=True)
-                clicked = True
-                break
-            except Exception:
-                continue
+        # Menjalankan JavaScript untuk mencoba mengklik elemen yang mungkin menjadi pemicu
+        await page.evaluate('''
+            const tryClick = (selector) => {
+                const element = document.querySelector(selector);
+                if (element) {
+                    console.log('JS: Mengklik elemen tersembunyi:', selector);
+                    element.click();
+                    return true;
+                }
+                return false;
+            };
+
+            // 1. Coba klik tombol Settings/Kualitas/Sumber (meskipun tersembunyi)
+            tryClick('button[title*="Settings"]'); 
+            tryClick('div[class*="quality-select"] button');
+            tryClick('div[class*="source-select"]');
+            
+            // 2. Coba klik Server 2 (jika ada, sebagai fallback)
+            tryClick('button[data-server="2"]'); 
+            
+            // 3. Coba panggil fungsi internal (jika didefinisikan secara global)
+            if (window.switchSource) {
+                 window.switchSource(2); // Asumsi Server 2
+            } else if (window.changeContentSource) {
+                 window.changeContentSource('full_movie'); 
+            }
+        ''')
         
-        # --- STRATEGI V14: DOUBLE-CLICK DAN SELECTOR LEBIH LUAS ---
-        
-        # Langkah 1: Coba klik elemen yang mungkin membuka daftar sumber/dropdown
-        dropdown_selectors = [
-            'button[class*="source-select"]',
-            'div.resource-tab-item', 
-            'div[class*="source-list"] button:first-child',
-            'div[class*="server"] button:first-child' # Tombol server pertama
-        ]
-        
-        print("   - Mencoba membuka daftar Sumber...")
-        for selector in dropdown_selectors:
-            try:
-                await page.wait_for_selector(selector, state="visible", timeout=2000)
-                await page.click(selector, timeout=1000)
-                print(f"   - Berhasil klik dropdown/tab: {selector}")
-                break
-            except Exception:
-                continue
-        
-        # Langkah 2: Mencoba mengklik Server Alternatif (Server 2)
-        print("   - Mencoba mengklik Server/Source Alternatif...")
-        
-        server_selectors = [
-            'button[data-server="2"]',           
-            'a[data-server="2"]',                
-            'div.server-list button:nth-child(2)', 
-            'a:has-text("Server 2")',            
-            'button:has-text("Server 2")',       
-            'button:has-text("2")',              
-            'div[class*="source-item"]:nth-child(2) a', 
-            'div[class*="source-item"]:nth-child(2) button',
-            'div[class*="server-source"] button:nth-child(2)', # Selector server umum
-        ]
-        
-        clicked_server = False
-        for selector in server_selectors:
-            try:
-                # Beri waktu singkat setelah klik dropdown/tab
-                await page.wait_for_timeout(500) 
-                
-                await page.wait_for_selector(selector, state="visible", timeout=3000)
-                await page.click(selector, timeout=2000, force=True)
-                print(f"   - BERHASIL MENGKLIK FILM PENUH: {selector}")
-                clicked_server = True
-                break
-            except PlaywrightTimeoutError:
-                continue
-            except Exception:
-                continue
-        
-        if not clicked_server:
-             print("   - Gagal mengklik Server/Source alternatif (V14), mengandalkan trailer stream.")
+        # Beri waktu setelah injeksi JS untuk request baru terpicu
+        await page.wait_for_timeout(7000) 
 
     except Exception as e:
-        print(f"   - Error saat interaksi/klik: {e}")
+        print(f"   - Error saat interaksi/evaluasi JS: {e}")
         pass
 
-    # Beri waktu lebih lama untuk request baru setelah klik sumber utama (10 detik)
-    await page.wait_for_timeout(10000) 
-
-    # --- Pengecekan Respons API (Strategi Agresif) ---
+    # --- ANALISIS RESPONS API SECARA MENDALAM ---
     print(f"   - Memeriksa {len(candidate_requests)} request API/XHR...")
+    
     for req in candidate_requests:
         try:
             response = await req.response()
+            
             if response and response.status == 200:
                 text = await response.text()
                 
-                if ".m3u8" in text or ".mp4" in text:
-                    print(f"   - Ditemukan string media di respons dari: {req.url}")
+                # Cari pola URL streaming di dalam body respons API
+                if any(ext in text for ext in [".m3u8", ".mp4", ".mpd"]):
                     
                     found_urls = re.findall(r'(https?:\/\/[^\s"\']*\.(?:m3u8|mp4|mpd|ts)[^\s"\']*)', text)
                     
                     for fu in found_urls:
-                        if "thumb" not in fu and "ad" not in fu and "tracking" not in fu:
+                        # Prioritas: URL tidak mengandung "thumb", "ad", atau "trailer"
+                        if "thumb" not in fu and "ad" not in fu and "tracking" not in fu and "trailer" not in fu.lower():
                             streams.append(fu)
+                            print(f"     -> Ditemukan KANDIDAT STREAM FILM PENUH di: {req.url}")
 
         except Exception:
             pass
@@ -166,7 +134,9 @@ async def get_stream_url(page, url):
     # Kembalikan URL streaming terbaik
     if streams:
         unique_streams = list(set(streams))
+        # Prioritaskan URL terpanjang, karena film penuh lebih panjang dari trailer
         unique_streams.sort(key=len, reverse=True) 
+        
         return unique_streams[0]
     else:
         return None
