@@ -1,4 +1,4 @@
-# mobox.py v18 — Versi Final (Selector Eksklusif Download untuk Film Penuh)
+# mobox.py v20 — Versi Final (Targeting Tombol Mobile Download/Watch in App)
 
 import asyncio
 import re
@@ -66,35 +66,42 @@ async def get_stream_url(page, url):
     await page.wait_for_timeout(5000)
 
     try:
-        # --- STRATEGI V18: TARGET SELECTOR EKSKLUSIF DOWNLOAD ---
-        print("   - Mencoba mengklik pemicu 'Download video' berdasarkan CSS Class...")
+        # 1. Coba tutup iklan/overlay pop-up yang mungkin menghalangi klik
+        print("   - Mencoba menutup pop-up/iklan penghalang...")
+        try:
+             # Coba klik tombol close atau close icon yang muncul di overlay
+             await page.click('button[aria-label*="Close"], div.close-icon, div[id*="ad-close"], div[class*="close-button"]', timeout=3000)
+             print("   - Pop-up/Iklan berhasil ditutup (mungkin).")
+        except Exception:
+             pass
 
-        # Selector yang menargetkan tombol download (paling spesifik di V18)
-        download_selectors_v18 = [
-            # PRIORITAS TERTINGGI: Selector dari Inspect Element (div.flx-ce-ce-pc-download-btn)
-            'div.flx-ce-ce-pc-download-btn', 
-            # Selector berdasarkan bagian dari kelas (lebih fleksibel):
-            'div[class*="download-btn"]', 
-            # Selector berdasarkan teks tombol (jika muncul):
-            'a:has-text("Download video")', 
-            'button:has-text("Download")',
+        # --- STRATEGI V20: KLIK TOMBOL MOBILE DOWNLOAD/APP ---
+        
+        # Selector yang menargetkan tombol download/app di tampilan mobile/header
+        download_selectors_v20 = [
+            [span_2](start_span)[span_3](start_span)'div.download-tab',                       # Mobile Header Download Tab[span_2](end_span)[span_3](end_span)
+            [span_4](start_span)'div.main-btn.copy-btn',                  # Tombol "Watch in App" (Mobile)[span_4](end_span)
+            'div.flx-ce-ce-pc-download-btn',          # Fallback selector PC Download
+            'div[class*="download-btn"]',             
         ]
         
+        print("   - Mencoba klik tombol Download/Watch in App (V20)...")
+        
         clicked_download = False
-        for selector in download_selectors_v18:
+        for selector in download_selectors_v20:
             try:
-                # Menunggu selector muncul
+                # Menggunakan Klik Paksa melalui Playwright
                 await page.wait_for_selector(selector, state="visible", timeout=7000)
                 await page.click(selector, timeout=2000, force=True)
-                print(f"   - BERHASIL mengklik tombol Download: {selector}")
                 clicked_download = True
+                print(f"   - BERHASIL mengklik tombol Download: {selector}")
                 break
             except Exception:
                 continue
         
         if not clicked_download:
-             print("   - Gagal mengklik tombol Download (V18). Menggunakan trailer sebagai fallback.")
-             # Jika download gagal, coba klik play default sebagai fallback
+             print("   - Gagal mengklik tombol Download. Menggunakan trailer sebagai fallback.")
+             # Fallback ke klik play default
              try:
                  await page.click('video', timeout=1000, force=True)
              except Exception:
@@ -107,7 +114,7 @@ async def get_stream_url(page, url):
         print(f"   - Error saat interaksi/klik: {e}")
         pass
 
-    # --- ANALISIS RESPONS API (V18: Filtering Ketat) ---
+    # --- ANALISIS RESPONS API (V20: Filtering Ketat) ---
     print(f"   - Memeriksa {len(candidate_requests)} request API/XHR...")
     
     streams_candidates = [] 
@@ -119,6 +126,7 @@ async def get_stream_url(page, url):
             if response and response.status == 200:
                 text = await response.text()
                 
+                # Cari pola URL streaming di dalam body respons API
                 if any(ext in text for ext in [".m3u8", ".mp4", ".mpd"]):
                     
                     found_urls = re.findall(r'(https?:\/\/[^\s"\']*\.(?:m3u8|mp4|mpd|ts)[^\s"\']*)', text)
