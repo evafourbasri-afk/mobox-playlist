@@ -1,4 +1,4 @@
-# mobox.py v20 — Versi Final (Targeting Tombol Mobile Download/Watch in App)
+# mobox.py v21 — Versi Final (Targeting Tab Sumber Alternatif)
 
 import asyncio
 import re
@@ -62,8 +62,8 @@ async def get_stream_url(page, url):
     await page.goto(url, wait_until="domcontentloaded") 
     print(f"   - URL Redirect: {page.url}")
     
-    # Beri waktu lebih lama untuk rendering
-    await page.wait_for_timeout(5000)
+    # Beri waktu untuk rendering
+    await page.wait_for_timeout(4000)
 
     try:
         # 1. Coba tutup iklan/overlay pop-up yang mungkin menghalangi klik
@@ -74,47 +74,45 @@ async def get_stream_url(page, url):
              print("   - Pop-up/Iklan berhasil ditutup (mungkin).")
         except Exception:
              pass
+             
+        # --- STRATEGI V21: MENGKLIK TAB SUMBER ALTERNATIF ---
+        print("   - Mencoba mengklik Tab Sumber Alternatif (lklk/Netflix)...")
 
-        # --- STRATEGI V20: KLIK TOMBOL MOBILE DOWNLOAD/APP ---
-        
-        # Selector yang menargetkan tombol download/app di tampilan mobile/header
-        download_selectors_v20 = [
-            [span_2](start_span)[span_3](start_span)'div.download-tab',                       # Mobile Header Download Tab[span_2](end_span)[span_3](end_span)
-            [span_4](start_span)'div.main-btn.copy-btn',                  # Tombol "Watch in App" (Mobile)[span_4](end_span)
-            'div.flx-ce-ce-pc-download-btn',          # Fallback selector PC Download
-            'div[class*="download-btn"]',             
+        # Selector yang menargetkan item sumber kedua (lklk) atau ketiga (Netflix)
+        # Berdasarkan source.txt: div.type-item:nth-child(n) berada di bawah div.type
+        source_tab_selectors = [
+            'div.type-tab div.type-item:nth-child(2)', # Mengklik tab kedua ("lklk")
+            'div.type-tab div.type-item:nth-child(3)', # Mengklik tab ketiga ("Netflix")
         ]
         
-        print("   - Mencoba klik tombol Download/Watch in App (V20)...")
-        
-        clicked_download = False
-        for selector in download_selectors_v20:
+        clicked_source = False
+        for selector in source_tab_selectors:
             try:
-                # Menggunakan Klik Paksa melalui Playwright
-                await page.wait_for_selector(selector, state="visible", timeout=7000)
+                # Menunggu tab muncul dan mengkliknya
+                await page.wait_for_selector(selector, state="visible", timeout=5000)
                 await page.click(selector, timeout=2000, force=True)
-                clicked_download = True
-                print(f"   - BERHASIL mengklik tombol Download: {selector}")
+                clicked_source = True
+                print(f"   - BERHASIL mengklik Tab Sumber: {selector}")
                 break
             except Exception:
                 continue
         
-        if not clicked_download:
-             print("   - Gagal mengklik tombol Download. Menggunakan trailer sebagai fallback.")
-             # Fallback ke klik play default
+        if not clicked_source:
+             print("   - Gagal mengklik Tab Sumber. Menggunakan trailer sebagai fallback.")
+             # Fallback ke klik play default (untuk setidaknya mendapatkan trailer)
              try:
                  await page.click('video', timeout=1000, force=True)
              except Exception:
                  pass
         
-        # Beri waktu lebih lama setelah klik Download untuk request stream penuh terpicu
+        # Beri waktu lebih lama setelah klik Tab Sumber untuk request stream penuh terpicu
         await page.wait_for_timeout(15000) 
 
     except Exception as e:
         print(f"   - Error saat interaksi/klik: {e}")
         pass
 
-    # --- ANALISIS RESPONS API (V20: Filtering Ketat) ---
+    # --- ANALISIS RESPONS API (V21: Filtering Ketat) ---
     print(f"   - Memeriksa {len(candidate_requests)} request API/XHR...")
     
     streams_candidates = [] 
