@@ -1,4 +1,4 @@
-# mobox.py v23 — Versi Final (Target Master Playlist & Tombol Watch Online)
+# mobox.py v24 — "The Overlay Killer" & Source Tab Clicker
 
 import asyncio
 import re
@@ -7,7 +7,6 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 # --- KONSTANTA ---
 MOVIEBOX_URL = "https://moviebox.ph"
 OUTPUT_FILE = "mobox.m3u"
-# Batas untuk testing (mengambil 10 film pertama agar cepat)
 TEST_LIMIT = 10 
 
 # --- FUNGSI UTILITY ---
@@ -17,16 +16,11 @@ async def auto_scroll(page):
     last_height = await page.evaluate("document.body.scrollHeight")
     print("   - Memulai Auto Scroll...")
     for i in range(30):
-        # Scroll 2000px per iterasi
         await page.evaluate("window.scrollBy(0, 2000)") 
         await page.wait_for_timeout(1000)
-
         new_height = await page.evaluate("document.body.scrollHeight")
-        
         if new_height <= last_height:
-            print(f"   - Scroll selesai di iterasi {i+1}. Ketinggian stabil.")
             break
-        
         last_height = new_height
 
 def build_m3u(items):
@@ -37,99 +31,109 @@ def build_m3u(items):
             out.append(x["stream"])
     return "\n".join(out)
 
-
 # --- FUNGSI PENGAMBIL STREAM ---
 
 async def get_stream_url(page, url):
     streams = []
     
-    # Listener untuk menangkap request jaringan
+    # Listener request (Fokus M3U8)
     def on_request(req):
         u = req.url
-        # Tangkap M3U8 (Master Playlist) dan MP4
-        if any(ext in u for ext in [".m3u8", ".mp4", ".mpd", ".ts"]):
-            # Filter iklan dan tracking
+        # Tangkap M3U8 dan MP4
+        if any(ext in u for ext in [".m3u8", ".mp4", ".mpd"]):
             if "adservice" not in u and "tracking" not in u and "google" not in u:
                  streams.append(u)
 
     page.on("request", on_request)
 
-    # Navigasi
     await page.goto(url, wait_until="domcontentloaded") 
     print(f"   - URL Redirect: {page.url}")
-    
-    # Tunggu sebentar
     await page.wait_for_timeout(4000)
 
     try:
-        # --- STRATEGI V23: KLIK TOMBOL 'WATCH ONLINE' (DARI SOURCE HTML) ---
-        print("   - Mencoba klik tombol 'Watch Online'...")
-
-        # Selector berdasarkan source code mobile yang Anda kirim
-        watch_selectors = [
-            '.watch-btn',               # Class spesifik dari source.txt
-            'div[class*="watch-btn"]',  # Variasi class
-            'h3:has-text("Watch Online")', # Teks di dalam tombol
-            '.pc-watch-btn'             # Versi PC dari source code
-        ]
+        # --- STRATEGI V24: INJECT CSS UNTUK MEMBUNUH OVERLAY ---
+        print("   - Inject CSS untuk menyembunyikan overlay/iklan...")
+        await page.add_style_tag(content="""
+            div[class*="dialog"], div[class*="modal"], div[class*="overlay"], 
+            div[class*="popup"], .pc-scan-qr, .pc-download-content, 
+            .h5-detail-banner, .footer-box { 
+                display: none !important; 
+                visibility: hidden !important;
+                pointer-events: none !important;
+                z-index: -9999 !important;
+            }
+        """)
         
-        clicked = False
-        for selector in watch_selectors:
+        # --- STRATEGI V24: KLIK TAB SUMBER (Source Tab) ---
+        # Berdasarkan source.txt: <div class="type-item">...</div>
+        print("   - Mencoba klik Tab Sumber (selain default)...")
+        
+        # Coba klik tab sumber ke-2 atau ke-3 (biasanya lklk/Netflix/Fzmovies)
+        # Menggunakan JS Evaluate karena lebih kuat menembus elemen yang tertumpuk
+        clicked = await page.evaluate('''
+            () => {
+                // Cari semua tombol sumber
+                const tabs = document.querySelectorAll('.type-item, .source-tab');
+                if (tabs.length > 1) {
+                    // Klik tab kedua (indeks 1)
+                    tabs[1].click();
+                    return "Klik Tab Sumber ke-2";
+                }
+                
+                // Fallback: Cari tombol Watch Online
+                const watchBtn = document.querySelector('.pc-watch-btn, .watch-btn, .pc-btn');
+                if (watchBtn) {
+                    watchBtn.click();
+                    return "Klik Watch Button";
+                }
+                return null;
+            }
+        ''')
+        
+        if clicked:
+            print(f"   - JS Action Berhasil: {clicked}")
+        else:
+            print("   - Elemen interaksi tidak ditemukan via JS, mencoba Playwright standard...")
+            # Fallback Playwright Click
             try:
-                # Coba klik jika elemen ada
-                if await page.locator(selector).count() > 0:
-                    await page.click(selector, timeout=2000, force=True)
-                    print(f"   - BERHASIL klik tombol: {selector}")
-                    clicked = True
-                    break
-            except Exception:
-                continue
-        
-        # Jika tombol watch online tidak ketemu, coba klik video player langsung
-        if not clicked:
-             print("   - Tombol Watch Online tidak ditemukan, klik player video...")
-             try:
-                 await page.click('video', timeout=1000, force=True)
-             except:
-                 pass
-        
-        # Beri waktu cukup lama agar Master Playlist dimuat
-        await page.wait_for_timeout(12000) 
+                await page.click('.type-item:nth-child(2)', timeout=2000, force=True)
+            except:
+                pass
+
+        # Tunggu request M3U8 muncul setelah interaksi
+        await page.wait_for_timeout(10000) 
 
     except Exception as e:
-        print(f"   - Error interaksi: {e}")
+        print(f"   - Error proses interaksi: {e}")
         pass
 
     page.remove_listener("request", on_request)
 
-    # --- FILTERING STREAM (V23) ---
-    # Prioritaskan .m3u8 dan hindari URL trailer (-ld.mp4)
-    
+    # --- FILTERING HASIL ---
     if streams:
         unique_streams = list(set(streams))
         
-        # 1. Cari Master Playlist (.m3u8) - INI PRIORITAS UTAMA
+        # 1. Cari Master M3U8 (Prioritas Tertinggi)
+        # Master playlist biasanya tidak punya "-ld" dan ukurannya kecil, tapi mengarah ke chunks
         m3u8_lists = [s for s in unique_streams if ".m3u8" in s]
         if m3u8_lists:
-            # Urutkan berdasarkan panjang URL (biasanya URL asli lebih panjang/kompleks)
+            # Urutkan berdasarkan panjang URL (URL asli biasanya panjang dan kompleks)
             m3u8_lists.sort(key=len, reverse=True)
-            print(f"     -> Ditemukan M3U8 Master Playlist: {m3u8_lists[0]}")
+            print(f"     -> Ditemukan M3U8: {m3u8_lists[0]}")
             return m3u8_lists[0]
 
-        # 2. Jika tidak ada m3u8, cari MP4 yang BUKAN trailer
-        # Trailer biasanya punya suffix "-ld.mp4" (Low Definition)
+        # 2. Cari MP4 Non-Trailer
         mp4_lists = [s for s in unique_streams if ".mp4" in s]
         full_movies = [s for s in mp4_lists if "-ld.mp4" not in s and "trailer" not in s.lower()]
         
         if full_movies:
             full_movies.sort(key=len, reverse=True)
-            print(f"     -> Ditemukan MP4 Film Penuh (Non-LD): {full_movies[0]}")
+            print(f"     -> Ditemukan MP4 Full: {full_movies[0]}")
             return full_movies[0]
-
-        # 3. Fallback: Jika hanya ada trailer, ambil itu daripada kosong
+            
+        # 3. Fallback (Trailer)
         if mp4_lists:
             mp4_lists.sort(key=len, reverse=True)
-            print("     -> Hanya ditemukan trailer/LD stream.")
             return mp4_lists[0]
 
     return None
@@ -174,7 +178,7 @@ async def get_movies(page):
 async def main():
     print("▶ Mengambil data MovieBox...")
     async with async_playwright() as p:
-        # Gunakan User Agent Android (Penting!)
+        # User Agent Android (Penting untuk struktur mobile)
         ANDROID_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Mobile Safari/537.36"
         
         browser = await p.chromium.launch(headless=True)
@@ -185,7 +189,6 @@ async def main():
         print(f"✔ Film ditemukan: {len(movies)}")
         
         results = []
-        # Proses 10 film untuk testing
         print(f"⚙️ Memproses {min(len(movies), TEST_LIMIT)} film pertama...")
 
         for m in movies[:TEST_LIMIT]:
