@@ -1,4 +1,4 @@
-# mobox.py v21 — Versi Final (Targeting Tab Sumber Alternatif)
+# mobox.py v22 — Versi Final (Modifikasi URL Stream untuk 1080p)
 
 import asyncio
 import re
@@ -62,61 +62,54 @@ async def get_stream_url(page, url):
     await page.goto(url, wait_until="domcontentloaded") 
     print(f"   - URL Redirect: {page.url}")
     
-    # Beri waktu untuk rendering
-    await page.wait_for_timeout(4000)
+    # Tunggu untuk inisialisasi API awal
+    await page.wait_for_timeout(5000)
 
+    # --- STRATEGI V22: MODIFIKASI URL STREAM DARI META TAG ---
+    
+    final_stream = None
+    
+    # 1. Coba ambil URL dari Meta Tag (default trailer/low-res)
+    meta_tag_url = None
     try:
-        # 1. Coba tutup iklan/overlay pop-up yang mungkin menghalangi klik
-        print("   - Mencoba menutup pop-up/iklan penghalang...")
-        try:
-             # Coba klik tombol close atau close icon yang muncul di overlay
-             await page.click('button[aria-label*="Close"], div.close-icon, div[id*="ad-close"], div[class*="close-button"]', timeout=3000)
-             print("   - Pop-up/Iklan berhasil ditutup (mungkin).")
-        except Exception:
-             pass
-             
-        # --- STRATEGI V21: MENGKLIK TAB SUMBER ALTERNATIF ---
-        print("   - Mencoba mengklik Tab Sumber Alternatif (lklk/Netflix)...")
-
-        # Selector yang menargetkan item sumber kedua (lklk) atau ketiga (Netflix)
-        # Berdasarkan source.txt: div.type-item:nth-child(n) berada di bawah div.type
-        source_tab_selectors = [
-            'div.type-tab div.type-item:nth-child(2)', # Mengklik tab kedua ("lklk")
-            'div.type-tab div.type-item:nth-child(3)', # Mengklik tab ketiga ("Netflix")
-        ]
+        # Mencari URL dari tag <meta property="og:video:url">
+        meta_tag_url = await page.locator('meta[property="og:video:url"]').get_attribute('content')
+    except Exception:
+        pass # Abaikan jika meta tag tidak ditemukan
         
-        clicked_source = False
-        for selector in source_tab_selectors:
-            try:
-                # Menunggu tab muncul dan mengkliknya
-                await page.wait_for_selector(selector, state="visible", timeout=5000)
-                await page.click(selector, timeout=2000, force=True)
-                clicked_source = True
-                print(f"   - BERHASIL mengklik Tab Sumber: {selector}")
-                break
-            except Exception:
-                continue
+    if meta_tag_url:
+        print(f"   - URL META TAG ditemukan: {meta_tag_url}")
         
-        if not clicked_source:
-             print("   - Gagal mengklik Tab Sumber. Menggunakan trailer sebagai fallback.")
-             # Fallback ke klik play default (untuk setidaknya mendapatkan trailer)
-             try:
-                 await page.click('video', timeout=1000, force=True)
-             except Exception:
-                 pass
+        # 2. Coba modifikasi URL trailer menjadi kandidat film penuh
         
-        # Beri waktu lebih lama setelah klik Tab Sumber untuk request stream penuh terpicu
-        await page.wait_for_timeout(15000) 
+        # Hapus suffix low quality (-ld, -sd, -md)
+        base_url = re.sub(r'-(ld|sd|md|hd)\.mp4$', '', meta_tag_url, flags=re.IGNORECASE)
+        
+        # Kandidat yang akan diuji (menambahkan suffix kualitas tinggi)
+        modified_urls = []
+        modified_urls.append(base_url + '.m3u8') # Master playlist (seringkali kualitas terbaik)
+        modified_urls.append(base_url + '-1080p.mp4') # Kandidat 1080p
+        modified_urls.append(base_url + '.mp4') # MP4 tanpa suffix (asumsi kualitas terbaik)
+        
+        for mod_url in modified_urls:
+            # Tambahkan ke streams_candidates untuk diuji oleh filtering ketat
+            streams.append(mod_url) 
+            
+        print(f"   - Ditambahkan {len(modified_urls)} kandidat URL modifikasi.")
+    else:
+        print("   - Gagal menemukan URL di Meta Tag.")
 
-    except Exception as e:
-        print(f"   - Error saat interaksi/klik: {e}")
-        pass
+    # KITA JANGAN LAGI MELAKUKAN KLIK APAPUN KARENA SUDAH TERBUKTI GAGAL DI V19-V21
+    
+    # Beri waktu tambahan untuk menangkap request API yang datang setelah 5 detik
+    await page.wait_for_timeout(10000) 
 
-    # --- ANALISIS RESPONS API (V21: Filtering Ketat) ---
+    # --- ANALISIS RESPONS API (V22: Filtering Ketat) ---
     print(f"   - Memeriksa {len(candidate_requests)} request API/XHR...")
     
-    streams_candidates = [] 
+    streams_candidates = streams.copy() # Mulai dengan URL yang dimodifikasi dan yang ditangkap di awal
     
+    # Tambahkan streams yang ditangkap oleh listener on_request selama 10 detik
     for req in candidate_requests:
         try:
             response = await req.response()
@@ -124,16 +117,13 @@ async def get_stream_url(page, url):
             if response and response.status == 200:
                 text = await response.text()
                 
-                # Cari pola URL streaming di dalam body respons API
                 if any(ext in text for ext in [".m3u8", ".mp4", ".mpd"]):
                     
                     found_urls = re.findall(r'(https?:\/\/[^\s"\']*\.(?:m3u8|mp4|mpd|ts)[^\s"\']*)', text)
                     
                     for fu in found_urls:
-                        # Prioritas: URL tidak mengandung "thumb", "ad", atau "trailer"
-                        if "thumb" not in fu and "ad" not in fu and "tracking" not in fu and "trailer" not in fu.lower():
+                        if "thumb" not in fu and "ad" not in fu and "tracking" not in fu:
                             streams_candidates.append(fu)
-                            print(f"     -> Ditemukan KANDIDAT STREAM FILM PENUH di: {req.url}")
 
         except Exception:
             pass
@@ -148,11 +138,12 @@ async def get_stream_url(page, url):
         full_movies = [s for s in unique_streams if "trailer" not in s.lower()]
 
         if full_movies:
-            # Jika ada non-trailer, ambil yang terpanjang (kemungkinan besar film penuh)
+            # Jika ada non-trailer, ambil yang terpanjang (kemungkinan besar film penuh 1080p)
             full_movies.sort(key=len, reverse=True)
+            print(f"     -> Ditemukan {len(full_movies)} kandidat FILM PENUH (non-trailer).")
             return full_movies[0]
         else:
-            # Jika hanya trailer yang tersisa, ambil yang terpanjang (untuk konsistensi log)
+            # Jika hanya trailer yang tersisa, ambil yang terpanjang (hanya untuk log konsisten)
             unique_streams.sort(key=len, reverse=True)
             print(f"     -> Hanya ditemukan trailer. Mengambil yang terpanjang.")
             return unique_streams[0]
