@@ -1,4 +1,4 @@
-# mobox.py v16 — Versi Final (Injeksi JS untuk Server Switch)
+# mobox.py v17 — Versi Final (Targeting Tombol Download untuk Film Penuh)
 
 import asyncio
 import re
@@ -17,6 +17,7 @@ async def auto_scroll(page):
     last_height = await page.evaluate("document.body.scrollHeight")
     print("   - Memulai Auto Scroll...")
     for i in range(30):
+        # Scroll 2000px per iterasi
         await page.evaluate("window.scrollBy(0, 2000)") 
         await page.wait_for_timeout(1000)
 
@@ -60,53 +61,51 @@ async def get_stream_url(page, url):
     # Navigasi dengan wait_until yang lebih stabil
     await page.goto(url, wait_until="domcontentloaded") 
     print(f"   - URL Redirect: {page.url}")
-    
-    # Beri waktu untuk JS memuat API awal
     await page.wait_for_timeout(3000)
 
     try:
-        # --- STRATEGI V16: INJEKSI JAVASCRIPT UNTUK MENGGANTI SUMBER ---
-        print("   - Mencoba injeksi JavaScript untuk mengganti sumber/kualitas...")
+        # --- STRATEGI V17: TARGET TOMBOL DOWNLOAD ---
+        print("   - Mencoba mengklik pemicu 'Download video'...")
 
-        # KITA MELEWATI KLIK VISUAL YANG GAGAL
+        # Selector yang menargetkan tombol download (berdasarkan class/teks umum)
+        download_selectors = [
+            'button:has-text("Download")',
+            'a:has-text("Download video")',
+            'div[class*="download-btn"]', # Selector dari gambar inspect element
+            'div[class*="download"] a',
+        ]
         
-        # Menjalankan JavaScript untuk mencoba mengklik elemen yang mungkin menjadi pemicu
-        await page.evaluate('''
-            const tryClick = (selector) => {
-                const element = document.querySelector(selector);
-                if (element) {
-                    console.log('JS: Mengklik elemen tersembunyi:', selector);
-                    element.click();
-                    return true;
-                }
-                return false;
-            };
-
-            // 1. Coba klik tombol Settings/Kualitas/Sumber (meskipun tersembunyi)
-            tryClick('button[title*="Settings"]'); 
-            tryClick('div[class*="quality-select"] button');
-            tryClick('div[class*="source-select"]');
-            
-            // 2. Coba klik Server 2 (jika ada, sebagai fallback)
-            tryClick('button[data-server="2"]'); 
-            
-            // 3. Coba panggil fungsi internal (jika didefinisikan secara global)
-            if (window.switchSource) {
-                 window.switchSource(2); // Asumsi Server 2
-            } else if (window.changeContentSource) {
-                 window.changeContentSource('full_movie'); 
-            }
-        ''')
+        clicked_download = False
+        for selector in download_selectors:
+            try:
+                # Menunggu tombol terlihat dan mengkliknya
+                await page.wait_for_selector(selector, state="visible", timeout=3000)
+                await page.click(selector, timeout=2000, force=True)
+                print(f"   - BERHASIL mengklik tombol Download: {selector}")
+                clicked_download = True
+                break
+            except Exception:
+                continue
         
-        # Beri waktu setelah injeksi JS untuk request baru terpicu
-        await page.wait_for_timeout(7000) 
+        if not clicked_download:
+             print("   - Gagal mengklik tombol Download. Mencoba klik play default.")
+             # Jika download gagal, coba klik play default sebagai fallback
+             try:
+                 await page.click('video', timeout=1000, force=True)
+             except Exception:
+                 pass
+        
+        # Beri waktu lebih lama setelah klik Download untuk request stream penuh terpicu
+        await page.wait_for_timeout(15000) 
 
     except Exception as e:
-        print(f"   - Error saat interaksi/evaluasi JS: {e}")
+        print(f"   - Error saat interaksi/klik: {e}")
         pass
 
-    # --- ANALISIS RESPONS API SECARA MENDALAM ---
+    # --- ANALISIS RESPONS API (V17: Filtering Ketat) ---
     print(f"   - Memeriksa {len(candidate_requests)} request API/XHR...")
+    
+    streams_candidates = [] 
     
     for req in candidate_requests:
         try:
@@ -115,7 +114,6 @@ async def get_stream_url(page, url):
             if response and response.status == 200:
                 text = await response.text()
                 
-                # Cari pola URL streaming di dalam body respons API
                 if any(ext in text for ext in [".m3u8", ".mp4", ".mpd"]):
                     
                     found_urls = re.findall(r'(https?:\/\/[^\s"\']*\.(?:m3u8|mp4|mpd|ts)[^\s"\']*)', text)
@@ -123,7 +121,7 @@ async def get_stream_url(page, url):
                     for fu in found_urls:
                         # Prioritas: URL tidak mengandung "thumb", "ad", atau "trailer"
                         if "thumb" not in fu and "ad" not in fu and "tracking" not in fu and "trailer" not in fu.lower():
-                            streams.append(fu)
+                            streams_candidates.append(fu)
                             print(f"     -> Ditemukan KANDIDAT STREAM FILM PENUH di: {req.url}")
 
         except Exception:
@@ -131,13 +129,22 @@ async def get_stream_url(page, url):
 
     page.remove_listener("request", on_request)
 
-    # Kembalikan URL streaming terbaik
-    if streams:
-        unique_streams = list(set(streams))
-        # Prioritaskan URL terpanjang, karena film penuh lebih panjang dari trailer
-        unique_streams.sort(key=len, reverse=True) 
+    # Kembalikan URL streaming terbaik (terpanjang dan non-trailer)
+    if streams_candidates:
+        unique_streams = list(set(streams_candidates))
         
-        return unique_streams[0]
+        # Pisahkan dan prioritaskan URL yang tidak mengandung kata 'trailer'
+        full_movies = [s for s in unique_streams if "trailer" not in s.lower()]
+
+        if full_movies:
+            # Jika ada non-trailer, ambil yang terpanjang (kemungkinan besar film penuh)
+            full_movies.sort(key=len, reverse=True)
+            return full_movies[0]
+        else:
+            # Jika hanya trailer yang tersisa, ambil yang terpanjang (untuk konsistensi log)
+            unique_streams.sort(key=len, reverse=True)
+            print(f"     -> Hanya ditemukan trailer. Mengambil yang terpanjang.")
+            return unique_streams[0]
     else:
         return None
 
