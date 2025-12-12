@@ -1,4 +1,4 @@
-# mobox.py v17 — Versi Final (Targeting Tombol Download untuk Film Penuh)
+# mobox.py v18 — Versi Final (Selector Eksklusif Download untuk Film Penuh)
 
 import asyncio
 import re
@@ -61,25 +61,30 @@ async def get_stream_url(page, url):
     # Navigasi dengan wait_until yang lebih stabil
     await page.goto(url, wait_until="domcontentloaded") 
     print(f"   - URL Redirect: {page.url}")
-    await page.wait_for_timeout(3000)
+    
+    # Beri waktu lebih lama untuk rendering
+    await page.wait_for_timeout(5000)
 
     try:
-        # --- STRATEGI V17: TARGET TOMBOL DOWNLOAD ---
-        print("   - Mencoba mengklik pemicu 'Download video'...")
+        # --- STRATEGI V18: TARGET SELECTOR EKSKLUSIF DOWNLOAD ---
+        print("   - Mencoba mengklik pemicu 'Download video' berdasarkan CSS Class...")
 
-        # Selector yang menargetkan tombol download (berdasarkan class/teks umum)
-        download_selectors = [
+        # Selector yang menargetkan tombol download (paling spesifik di V18)
+        download_selectors_v18 = [
+            # PRIORITAS TERTINGGI: Selector dari Inspect Element (div.flx-ce-ce-pc-download-btn)
+            'div.flx-ce-ce-pc-download-btn', 
+            # Selector berdasarkan bagian dari kelas (lebih fleksibel):
+            'div[class*="download-btn"]', 
+            # Selector berdasarkan teks tombol (jika muncul):
+            'a:has-text("Download video")', 
             'button:has-text("Download")',
-            'a:has-text("Download video")',
-            'div[class*="download-btn"]', # Selector dari gambar inspect element
-            'div[class*="download"] a',
         ]
         
         clicked_download = False
-        for selector in download_selectors:
+        for selector in download_selectors_v18:
             try:
-                # Menunggu tombol terlihat dan mengkliknya
-                await page.wait_for_selector(selector, state="visible", timeout=3000)
+                # Menunggu selector muncul
+                await page.wait_for_selector(selector, state="visible", timeout=7000)
                 await page.click(selector, timeout=2000, force=True)
                 print(f"   - BERHASIL mengklik tombol Download: {selector}")
                 clicked_download = True
@@ -88,7 +93,7 @@ async def get_stream_url(page, url):
                 continue
         
         if not clicked_download:
-             print("   - Gagal mengklik tombol Download. Mencoba klik play default.")
+             print("   - Gagal mengklik tombol Download (V18). Menggunakan trailer sebagai fallback.")
              # Jika download gagal, coba klik play default sebagai fallback
              try:
                  await page.click('video', timeout=1000, force=True)
@@ -102,7 +107,7 @@ async def get_stream_url(page, url):
         print(f"   - Error saat interaksi/klik: {e}")
         pass
 
-    # --- ANALISIS RESPONS API (V17: Filtering Ketat) ---
+    # --- ANALISIS RESPONS API (V18: Filtering Ketat) ---
     print(f"   - Memeriksa {len(candidate_requests)} request API/XHR...")
     
     streams_candidates = [] 
