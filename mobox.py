@@ -1,81 +1,114 @@
-# mobox.py v6 — Perbaikan Penemuan Film (Film ditemukan: 0)
+# mobox.py v7 — Pengecekan API Response
 
-import asyncio
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+# ... (import dan fungsi auto_scroll, build_m3u tetap sama) ...
 
-MOVIEBOX_URL = "https://moviebox.ph"
-OUTPUT_FILE = "mobox.m3u"
+async def get_stream_url(page, url):
+    streams = []
+    candidate_requests = [] # Daftar untuk menampung request XHR/Fetch
 
-async def auto_scroll(page):
-    """Scroll perlahan dan cek sampai ketinggian halaman tidak bertambah lagi."""
-    last_height = await page.evaluate("document.body.scrollHeight")
-    for i in range(30): # Coba scroll maksimal 30 kali
-        await page.evaluate("window.scrollBy(0, document.body.scrollHeight)")
-        await page.wait_for_timeout(1000) # Tunggu 1 detik agar konten dimuat
-
-        new_height = await page.evaluate("document.body.scrollHeight")
+    def on_request(req):
+        u = req.url
+        # 1. Tangkap URL media langsung
+        if any(ext in u for ext in [".m3u8", ".mp4", ".mpd", ".ts"]):
+            if "adservice" not in u and "tracking" not in u:
+                 streams.append(u)
         
-        # Jika ketinggian halaman tidak bertambah, asumsikan sudah mencapai akhir
-        if new_height == last_height:
-            print(f"   - Scroll selesai di iterasi {i+1}.")
-            break
-        
-        last_height = new_height
+        # 2. Tangkap semua request yang mungkin berupa API Call
+        if req.resource_type in ["xhr", "fetch"]:
+             candidate_requests.append(req) 
 
-async def get_movies(page):
-    print("   - Mengunjungi halaman utama...")
-    await page.goto(MOVIEBOX_URL, wait_until="load")
-    
-    # Tunggu sebentar setelah halaman dimuat untuk rendering awal
+    page.on("request", on_request)
+
+    await page.goto(url, wait_until="networkidle")
+    print(f"   - URL Redirect: {page.url}")
     await page.wait_for_timeout(3000)
 
-    # Scroll supaya semua card film muncul
-    print("   - Melakukan scroll untuk lazy-loading...")
-    await auto_scroll(page)
+    try:
+        # Lakukan interaksi untuk memicu pemuatan
+        print("   - Mencoba klik pemutar video...")
+        
+        play_selectors = [
+            'button[aria-label*="Play"]', 
+            'div.vjs-big-play-button',       
+            '#playButton',                     
+            'video',
+            'div[role="button"]',
+            'div.player-wrapper' # Selector umum untuk container player
+        ]
+        
+        clicked = False
+        for selector in play_selectors:
+            try:
+                await page.click(selector, timeout=2000, force=True)
+                clicked = True
+                break
+            except PlaywrightTimeoutError:
+                continue
+            except Exception:
+                continue
 
-    # --- PERBAIKAN SELECTOR ---
-    # Coba beberapa selector umum untuk tautan film/konten yang menuju halaman detail
-    # Gunakan selector yang lebih umum dari sekedar href
-    cards = await page.query_selector_all(
-        "a[href*='/movie/'], " +   # Selector lama
-        "a[href*='/detail?id=']"   # Selector alternatif, sering dipakai di situs streaming
-    )
-    
-    # Jika cards masih kosong, coba selector card container
-    if not cards:
-        print("   - Selector tautan langsung gagal. Mencoba card container...")
-        # Coba selector yang menunjuk ke container/div film, lalu cari tautan di dalamnya
-        cards = await page.query_selector_all("div.movie-card a, div.card-item a")
+        # Coba klik di Iframe
+        for frame in page.main_frame().child_frames():
+            try:
+                await frame.click('video, button[aria-label*="Play"]', timeout=1000, force=True)
+                clicked = True
+                break
+            except Exception:
+                pass
         
-    movies = []
-    
-    # Gunakan set untuk menghindari duplikasi URL
-    unique_urls = set() 
-    
-    for c in cards:
-        href = await c.get_attribute("href")
-        
-        # Ambil teks terdekat yang mungkin merupakan judul
-        title = (await c.inner_text() or "").strip()
-        
-        # Jika inner_text kosong, coba cari elemen judul di dalam card
-        if len(title) < 2:
-             title_element = await c.query_selector('h3, p.title, span.title')
-             title = (await title_element.inner_text() if title_element else title).strip()
-
-        # Konstruksi URL lengkap
-        if href and not href.startswith(MOVIEBOX_URL):
-            url = MOVIEBOX_URL + href
+        if clicked:
+            print("   - Interaksi berhasil memicu request.")
         else:
-            url = href
+            print("   - Gagal interaksi, mengandalkan autoplay.")
 
-        if url and len(title) > 2 and url not in unique_urls:
-            movies.append({
-                "title": title,
-                "url": url
-            })
-            unique_urls.add(url)
 
-    return movies
+    except Exception as e:
+        print(f"   - Error saat interaksi/klik: {e}")
+        pass
 
-# ... (fungsi get_stream_url, build_m3u, dan main tetap sama) ...
+    # Beri waktu untuk request selesai
+    await page.wait_for_timeout(7000) 
+
+    # --- PERBAIKAN 2: Memeriksa Respons API ---
+    print(f"   - Memeriksa {len(candidate_requests)} request API/XHR...")
+    for req in candidate_requests:
+        try:
+            # Ambil respons dari request yang berhasil
+            response = await req.response()
+            if response and response.status == 200:
+                text = await response.text()
+                
+                # Cari string media di dalam body respons
+                if ".m3u8" in text or ".mp4" in text:
+                    # Ini sangat mungkin adalah URL streaming yang valid,
+                    # meskipun kita perlu parsing JSON untuk mendapatkannya
+                    print(f"   - Ditemukan string media di respons dari: {req.url}")
+                    
+                    # Coba parsing
+                    # Asumsi: URL streaming adalah salah satu yang paling panjang
+                    import re
+                    # Mencari pola http://...m3u8 atau http://...mp4
+                    found_urls = re.findall(r'(https?:\/\/[^\s"\']*\.(?:m3u8|mp4|mpd|ts)[^\s"\']*)', text)
+                    
+                    for fu in found_urls:
+                        # Pastikan URLnya tidak berupa thumbnail kecil atau iklan
+                        if "thumb" not in fu and "ad" not in fu and "tracking" not in fu:
+                            streams.append(fu)
+
+        except Exception as e:
+            # Gagal mengambil respons (mis. request dibatalkan)
+            pass
+
+    page.remove_listener("request", on_request)
+
+    # Kembalikan URL streaming pertama yang valid
+    if streams:
+        # Hapus duplikat dan ambil yang pertama
+        unique_streams = list(set(streams))
+        # Mengambil yang paling mungkin valid (misalnya yang paling panjang)
+        unique_streams.sort(key=len, reverse=True) 
+        return unique_streams[0]
+    else:
+        return None
+
+# ... (pastikan Anda mengganti fungsi get_stream_url di mobox.py Anda dengan kode di atas) ...
