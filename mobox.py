@@ -1,4 +1,4 @@
-# mobox.py v9 — Versi Paling Robust (Mengatasi Timeout, API Calls, dan NameError)
+# mobox.py v10 — Versi Paling Robust (Mengatasi Trailer, Timeout, API Calls)
 
 import asyncio
 import re
@@ -56,15 +56,14 @@ async def get_stream_url(page, url):
 
     page.on("request", on_request)
 
-    # PERBAIKAN: Mengubah wait_until dari "networkidle" (yang sering timeout) menjadi "domcontentloaded"
+    # PERBAIKAN: Mengubah wait_until untuk menghindari timeout (V9/V10)
     await page.goto(url, wait_until="domcontentloaded") 
     print(f"   - URL Redirect: {page.url}")
     await page.wait_for_timeout(3000)
 
     try:
-        # Lakukan interaksi untuk memicu pemuatan
-        print("   - Mencoba klik pemutar video...")
-        
+        # Lakukan interaksi pertama (memicu player default/trailer)
+        print("   - Mencoba klik pemutar video (default)...")
         play_selectors = [
             'button[aria-label*="Play"]', 
             'div.vjs-big-play-button',       
@@ -75,7 +74,6 @@ async def get_stream_url(page, url):
         ]
         
         clicked = False
-        # Interaksi utama
         for selector in play_selectors:
             try:
                 await page.click(selector, timeout=2000, force=True)
@@ -86,26 +84,39 @@ async def get_stream_url(page, url):
             except Exception:
                 continue
 
-        # Coba klik di Iframe
-        for frame in page.main_frame().child_frames():
-            try:
-                await frame.click('video, button[aria-label*="Play"]', timeout=1000, force=True)
-                clicked = True
-                break
-            except Exception:
-                pass
+        # --- PERBAIKAN V10: MENCARI SUMBER FILM UTAMA ---
+        print("   - Mencari tombol 'Full Movie' atau Source Selector...")
         
-        if clicked:
-            print("   - Interaksi berhasil memicu request.")
-        else:
-            print("   - Gagal interaksi, mengandalkan autoplay.")
+        main_content_selectors = [
+            'button:has-text("Play Movie")', 
+            'a:has-text("Full Movie")',      
+            'div.source-selector a',         
+            'button.source-btn',
+            'a[id*="source"]',
+            'button[id*="source"]'
+        ]
+        
+        clicked_main = False
+        for selector in main_content_selectors:
+            try:
+                await page.click(selector, timeout=3000, force=True)
+                print(f"   - Berhasil mengklik sumber utama: {selector}")
+                clicked_main = True
+                break
+            except PlaywrightTimeoutError:
+                continue
+            except Exception:
+                continue
+        
+        if not clicked_main:
+            print("   - Sumber utama tidak ditemukan, mengandalkan stream yang sudah ada.")
 
     except Exception as e:
         print(f"   - Error saat interaksi/klik: {e}")
         pass
 
-    # Beri waktu untuk request selesai
-    await page.wait_for_timeout(7000) 
+    # Beri waktu lebih lama untuk request baru setelah klik sumber utama
+    await page.wait_for_timeout(10000) # Tunggu 10 detik
 
     # --- Pengecekan Respons API (Strategi Agresif) ---
     print(f"   - Memeriksa {len(candidate_requests)} request API/XHR...")
@@ -203,7 +214,7 @@ async def main():
         print(f"✔ Film ditemukan: {len(movies)}")
         
         results = []
-        # Batasi ke 10 film untuk proses debugging cepat (ubah sesuai kebutuhan)
+        # Batasi ke 10 film untuk proses debugging cepat (atur ke len(movies) untuk semua)
         for m in movies[:10]:
             print("▶ Ambil stream:", m["title"])
             m["stream"] = await get_stream_url(page, m["url"]) 
