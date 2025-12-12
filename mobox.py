@@ -1,4 +1,4 @@
-# mobox.py v11 — Versi Final (Targeting Server Alternatif untuk Film Penuh)
+# mobox.py v12 — Versi Final (User Agent Mobile & Server Alternatif)
 
 import asyncio
 import re
@@ -78,7 +78,7 @@ async def get_stream_url(page, url):
             except Exception:
                 continue
         
-        # --- PERBAIKAN V11: MENCARI SERVER ALTERNATIF ---
+        # --- STRATEGI SERVER ALTERNATIF ---
         print("   - Mencari tombol Server/Source Alternatif...")
         
         # Selector untuk tombol server/sumber yang berbeda (seringkali Server 2 adalah film penuh)
@@ -187,10 +187,12 @@ async def get_movies(page):
 async def main():
     print("▶ Mengambil data MovieBox...")
     async with async_playwright() as p:
-        # Menggunakan user-agent agar tampak seperti browser normal
+        # PERBAIKAN V12: Menggunakan User Agent Android untuk melewati blokir mobile-only
+        ANDROID_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Mobile Safari/537.36"
+        
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+            user_agent=ANDROID_USER_AGENT 
         )
         page = await context.new_page()
 
@@ -199,7 +201,7 @@ async def main():
         print(f"✔ Film ditemukan: {len(movies)}")
         
         results = []
-        # Batasi ke 10 film untuk proses debugging cepat (ubah sesuai kebutuhan)
+        # Batasi ke 10 film untuk proses debugging cepat
         for m in movies[:10]:
             print("▶ Ambil stream:", m["title"])
             m["stream"] = await get_stream_url(page, m["url"]) 
