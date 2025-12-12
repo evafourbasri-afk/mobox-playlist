@@ -1,4 +1,4 @@
-# mobox.py v26 — Target Specific Source Tabs
+# mobox.py v27 — JS Click & Keyboard Press (Final Attempt)
 
 import asyncio
 import re
@@ -53,6 +53,7 @@ async def get_stream_url(page, url):
     try:
         # 1. Inject CSS (Overlay Killer)
         print("   - Inject CSS untuk menyembunyikan overlay/iklan...")
+        # Tambahkan pointer-events: auto pada body untuk memastikan elemen di bawahnya dapat diklik
         await page.add_style_tag(content="""
             /* Target semua elemen pop-up/overlay/iklan dengan z-index tinggi */
             body > div[style*='z-index: 1000'] { 
@@ -67,50 +68,45 @@ async def get_stream_url(page, url):
                 pointer-events: none !important;
                 z-index: -9999 !important;
             }
+            body { 
+                pointer-events: auto !important;
+            }
         """)
         
-        # 2. Rangkaian Interaksi (Targeting Sumber Spesifik)
-        print("   - Memulai rangkaian interaksi: Target Sumber Spesifik...")
+        # 2. Rangkaian Interaksi (JS Click & Keyboard Press)
+        print("   - Memulai rangkaian interaksi: JS Click dan Keyboard Press...")
         
-        interaction_success = False
-
-        # Mencoba klik Tab Sumber dengan teks 'film' (yang merupakan sumber kedua)
-        try:
-            # Selector: Cari div dengan class .type-item atau .source-tab yang berisi teks 'film'
-            film_tab_locator = page.locator('.type-item:has(span:text-is("film")), .source-tab:has(span:text-is("film"))')
-            if await film_tab_locator.count() > 0:
-                await film_tab_locator.focus()
-                await page.wait_for_timeout(1000)
-                await film_tab_locator.click(force=True, timeout=5000)
-                print("     -> Berhasil klik Tab Sumber 'film' dengan Fokus.")
-                interaction_success = True
-        except PlaywrightTimeoutError:
-            pass
-
-        # Jika belum berhasil, coba klik tab 'Netflix' sebagai alternatif
-        if not interaction_success:
+        # A. Coba klik Tombol 'film' menggunakan JavaScript (mengabaikan visibilitas DOM)
+        js_click_success = await page.evaluate('''
+            () => {
+                const filmTab = document.querySelector('.type-item:has(span:text-is("film")), .source-tab:has(span:text-is("film"))');
+                if (filmTab) {
+                    filmTab.click(); // JS click
+                    return true;
+                }
+                const watchBtn = document.querySelector('.pc-watch-btn, .watch-btn');
+                if (watchBtn) {
+                    watchBtn.click(); // Fallback ke Watch Online
+                    return true;
+                }
+                return false;
+            }
+        ''')
+        
+        if js_click_success:
+            print("     -> JS Click 'film' atau 'Watch Online' Berhasil dipicu.")
+            # Setelah klik, coba fokus pada elemen tersebut dan tekan Enter (simulasi yang lebih humanis)
             try:
-                netflix_tab_locator = page.locator('.type-item:has(span:text-is("Netflix")), .source-tab:has(span:text-is("Netflix"))')
-                if await netflix_tab_locator.count() > 0:
-                    await netflix_tab_locator.focus()
-                    await page.wait_for_timeout(1000)
-                    await netflix_tab_locator.click(force=True, timeout=5000)
-                    print("     -> Berhasil klik Tab Sumber 'Netflix' dengan Fokus.")
-                    interaction_success = True
-            except PlaywrightTimeoutError:
-                pass
+                 await page.locator('.type-item:has(span:text-is("film")), .source-tab:has(span:text-is("film")), .pc-watch-btn, .watch-btn').focus(timeout=3000)
+                 await page.keyboard.press('Enter')
+                 print("     -> Keyboard Enter Press Diterapkan.")
+            except:
+                 pass
+        else:
+             print("     -> Gagal menemukan target click melalui JS.")
 
-        # Fallback ke tombol Watch Online jika sumber spesifik gagal diklik
-        if not interaction_success:
-             try:
-                await page.click('.pc-watch-btn, .watch-btn', timeout=3000, force=True)
-                print("     -> Fallback: Berhasil klik tombol Watch Online.")
-                interaction_success = True
-             except PlaywrightTimeoutError:
-                print("     -> Gagal semua interaksi.")
-                pass
         
-        # Tunggu request M3U8/MP4 muncul setelah interaksi
+        # C. Berikan jeda waktu lebih untuk memuat stream dari sumber alternatif
         await page.wait_for_timeout(15000) 
 
     except Exception as e:
