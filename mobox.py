@@ -1,4 +1,4 @@
-# mobox.py v24 — "The Overlay Killer" & Source Tab Clicker (Revisi)
+# mobox.py v25 — "Human Interaction Mimicry" (Final Attempt)
 
 import asyncio
 import re
@@ -54,6 +54,11 @@ async def get_stream_url(page, url):
         # 1. Inject CSS (Overlay Killer)
         print("   - Inject CSS untuk menyembunyikan overlay/iklan...")
         await page.add_style_tag(content="""
+            /* Target semua elemen pop-up/overlay/iklan dengan z-index tinggi */
+            body > div[style*='z-index: 1000'] { 
+                display: none !important; 
+                visibility: hidden !important;
+            }
             div[class*="dialog"], div[class*="modal"], div[class*="overlay"], 
             div[class*="popup"], .pc-scan-qr, .pc-download-content, 
             .h5-detail-banner, .footer-box { 
@@ -64,25 +69,35 @@ async def get_stream_url(page, url):
             }
         """)
         
-        # 2. Klik Tab Sumber (Penting!)
-        print("   - Mencoba klik Tab Sumber (selain default)...")
+        # 2. Rangkaian Interaksi (Simulasi Manusia)
+        print("   - Memulai rangkaian interaksi simulasi manusia...")
         
-        # Coba klik tab sumber ke-2 (Contoh: 'lklk' atau 'Netflix')
+        # A. Coba klik tombol utama "Watch Online"
         try:
-            # Mengklik elemen kedua di daftar sumber (indeks 1)
-            await page.click('.type-item:nth-child(2)', timeout=3000, force=True)
-            print("   - Berhasil klik Tab Sumber ke-2.")
+            await page.click('.pc-watch-btn, .watch-btn', timeout=3000, force=True)
+            print("     -> Berhasil klik tombol Watch Online.")
         except PlaywrightTimeoutError:
-            print("   - Gagal klik Tab Sumber ke-2, mencoba tombol Watch Online.")
-            # Fallback ke tombol Watch Online 
-            try:
-                await page.click('.pc-watch-btn, .watch-btn, .pc-btn', timeout=3000, force=True)
-                print("   - Berhasil klik tombol Watch Online.")
-            except PlaywrightTimeoutError:
-                print("   - Gagal klik tombol interaksi.")
-                pass
+            pass
+            
+        await page.wait_for_timeout(1000)
         
-        # Tunggu request M3U8/MP4 muncul setelah interaksi (diberi jeda lebih lama)
+        # B. Coba klik tab sumber ke-2 (jika ada) dengan fokus paksa
+        try:
+            source_tab_locator = page.locator('.type-item:nth-child(2), .source-tab:nth-child(2)')
+            if await source_tab_locator.count() > 0:
+                await source_tab_locator.focus()
+                await page.wait_for_timeout(500)
+                await source_tab_locator.click(force=True, timeout=3000)
+                print("     -> Berhasil klik Tab Sumber ke-2 dengan Fokus.")
+        except PlaywrightTimeoutError:
+            pass
+            
+        await page.wait_for_timeout(1000)
+        
+        # C. Scroll sedikit untuk memastikan pemuatan dipicu (mimik aktivitas pengguna)
+        await page.evaluate("window.scrollBy(0, 50)")
+        
+        # Tunggu request M3U8/MP4 muncul setelah interaksi (15 detik sudah baik)
         await page.wait_for_timeout(15000) 
 
     except Exception as e:
@@ -95,15 +110,15 @@ async def get_stream_url(page, url):
     if streams:
         unique_streams = list(set(streams))
         
-        # Prioritas 1: Stream Kualitas Tinggi/Master Playlist (bukan trailer dan non-ld)
-        high_quality = [
+        # Prioritas 1: Stream M3U8 Kualitas Tinggi (bukan trailer dan non-ld)
+        high_quality_m3u8 = [
             s for s in unique_streams 
             if "-ld.mp4" not in s and "trailer" not in s.lower() and s.endswith(".m3u8")
         ]
-        if high_quality:
-            high_quality.sort(key=len, reverse=True) # Ambil yang terpanjang/terkompleks
-            print(f"     -> Ditemukan M3U8 Kualitas Tinggi: {high_quality[0]}")
-            return high_quality[0]
+        if high_quality_m3u8:
+            high_quality_m3u8.sort(key=len, reverse=True) 
+            print(f"     -> Ditemukan M3U8 Kualitas Tinggi: {high_quality_m3u8[0]}")
+            return high_quality_m3u8[0]
 
         # Prioritas 2: MP4 Kualitas Tinggi (bukan trailer dan non-ld)
         full_movies_mp4 = [
@@ -122,7 +137,7 @@ async def get_stream_url(page, url):
              print(f"     -> Fallback ke M3U8: {m3u8_fallback[0]}")
              return m3u8_fallback[0]
 
-        # Prioritas 4: Semua MP4 (Termasuk Trailer dan LD)
+        # Prioritas 4: Semua Stream Tersisa (Termasuk LD/Trailer sebagai upaya terakhir)
         if unique_streams:
             unique_streams.sort(key=len, reverse=True)
             print(f"     -> Fallback ke Stream Apapun: {unique_streams[0]}")
