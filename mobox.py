@@ -1,4 +1,4 @@
-# mobox.py v13 — Versi Final (User Agent Mobile & Server Selector Paling Agresif)
+# mobox.py v14 — Versi Final (Double-Click Strategi untuk Film Penuh)
 
 import asyncio
 import re
@@ -7,6 +7,8 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 # --- KONSTANTA ---
 MOVIEBOX_URL = "https://moviebox.ph"
 OUTPUT_FILE = "mobox.m3u"
+# Tetapkan limit untuk testing (mengambil 10 film pertama)
+TEST_LIMIT = 10 
 
 # --- FUNGSI UTILITY ---
 
@@ -78,28 +80,50 @@ async def get_stream_url(page, url):
             except Exception:
                 continue
         
-        # --- STRATEGI SERVER ALTERNATIF (V13) ---
-        print("   - Mencari tombol Server/Source Alternatif...")
+        # --- STRATEGI V14: DOUBLE-CLICK DAN SELECTOR LEBIH LUAS ---
         
-        # Selector yang mencoba Server 2 atau tombol yang memuat konten penuh
+        # Langkah 1: Coba klik elemen yang mungkin membuka daftar sumber/dropdown
+        dropdown_selectors = [
+            'button[class*="source-select"]',
+            'div.resource-tab-item', 
+            'div[class*="source-list"] button:first-child',
+            'div[class*="server"] button:first-child' # Tombol server pertama
+        ]
+        
+        print("   - Mencoba membuka daftar Sumber...")
+        for selector in dropdown_selectors:
+            try:
+                await page.wait_for_selector(selector, state="visible", timeout=2000)
+                await page.click(selector, timeout=1000)
+                print(f"   - Berhasil klik dropdown/tab: {selector}")
+                break
+            except Exception:
+                continue
+        
+        # Langkah 2: Mencoba mengklik Server Alternatif (Server 2)
+        print("   - Mencoba mengklik Server/Source Alternatif...")
+        
         server_selectors = [
-            'button[data-server="2"]',           # Umum: Tombol data-server="2"
-            'a[data-server="2"]',                # Umum: Link data-server="2"
-            'div.server-list button:nth-child(2)', # Tombol kedua di daftar server
-            'a:has-text("Server 2")',            # Link dengan teks "Server 2"
-            'button:has-text("Server 2")',       # Tombol dengan teks "Server 2"
-            'button:has-text("2")',              # Tombol apapun dengan teks "2"
-            'div[class*="source-item"]:nth-child(2) a', # Link di item sumber kedua
-            'div[class*="source-item"]:nth-child(2) button', # Tombol di item sumber kedua
+            'button[data-server="2"]',           
+            'a[data-server="2"]',                
+            'div.server-list button:nth-child(2)', 
+            'a:has-text("Server 2")',            
+            'button:has-text("Server 2")',       
+            'button:has-text("2")',              
+            'div[class*="source-item"]:nth-child(2) a', 
+            'div[class*="source-item"]:nth-child(2) button',
+            'div[class*="server-source"] button:nth-child(2)', # Selector server umum
         ]
         
         clicked_server = False
         for selector in server_selectors:
             try:
-                # Menunggu elemen muncul dan mencoba klik
+                # Beri waktu singkat setelah klik dropdown/tab
+                await page.wait_for_timeout(500) 
+                
                 await page.wait_for_selector(selector, state="visible", timeout=3000)
                 await page.click(selector, timeout=2000, force=True)
-                print(f"   - Berhasil mengklik Server/Source alternatif: {selector}")
+                print(f"   - BERHASIL MENGKLIK FILM PENUH: {selector}")
                 clicked_server = True
                 break
             except PlaywrightTimeoutError:
@@ -108,7 +132,7 @@ async def get_stream_url(page, url):
                 continue
         
         if not clicked_server:
-             print("   - Gagal mengklik Server/Source alternatif, mengandalkan trailer stream.")
+             print("   - Gagal mengklik Server/Source alternatif (V14), mengandalkan trailer stream.")
 
     except Exception as e:
         print(f"   - Error saat interaksi/klik: {e}")
@@ -193,7 +217,7 @@ async def get_movies(page):
 async def main():
     print("▶ Mengambil data MovieBox...")
     async with async_playwright() as p:
-        # PERBAIKAN V12/V13: Menggunakan User Agent Android untuk melewati blokir mobile-only
+        # User Agent Android untuk melewati blokir mobile-only
         ANDROID_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Mobile Safari/537.36"
         
         browser = await p.chromium.launch(headless=True)
@@ -207,8 +231,10 @@ async def main():
         print(f"✔ Film ditemukan: {len(movies)}")
         
         results = []
-        # Batasi ke 10 film untuk proses debugging cepat
-        for m in movies[:10]:
+        # Menggunakan limit 10 film untuk testing
+        print(f"⚙️ Memproses {min(len(movies), TEST_LIMIT)} film pertama untuk testing...")
+
+        for m in movies[:TEST_LIMIT]:
             print("▶ Ambil stream:", m["title"])
             m["stream"] = await get_stream_url(page, m["url"]) 
             if m["stream"]:
