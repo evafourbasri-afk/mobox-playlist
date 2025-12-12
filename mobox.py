@@ -1,4 +1,4 @@
-# mobox.py v23 — Versi Final (Targeting M3U8 Master Playlist via Listener)
+# mobox.py v23 — Versi Final (Target Master Playlist & Tombol Watch Online)
 
 import asyncio
 import re
@@ -7,7 +7,7 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 # --- KONSTANTA ---
 MOVIEBOX_URL = "https://moviebox.ph"
 OUTPUT_FILE = "mobox.m3u"
-# Batas untuk testing (mengambil 10 film pertama)
+# Batas untuk testing (mengambil 10 film pertama agar cepat)
 TEST_LIMIT = 10 
 
 # --- FUNGSI UTILITY ---
@@ -42,87 +42,99 @@ def build_m3u(items):
 
 async def get_stream_url(page, url):
     streams = []
-    candidate_requests = [] 
-
+    
     # Listener untuk menangkap request jaringan
     def on_request(req):
         u = req.url
-        # 1. Tangkap URL media langsung (termasuk .m3u8, .mp4, .ts)
+        # Tangkap M3U8 (Master Playlist) dan MP4
         if any(ext in u for ext in [".m3u8", ".mp4", ".mpd", ".ts"]):
-            if "adservice" not in u and "tracking" not in u:
+            # Filter iklan dan tracking
+            if "adservice" not in u and "tracking" not in u and "google" not in u:
                  streams.append(u)
-        
-        # 2. Tangkap semua request yang mungkin berupa API Call (XHR/Fetch)
-        if req.resource_type in ["xhr", "fetch"]:
-             candidate_requests.append(req) 
 
     page.on("request", on_request)
 
-    # Navigasi dengan wait_until yang lebih stabil
+    # Navigasi
     await page.goto(url, wait_until="domcontentloaded") 
     print(f"   - URL Redirect: {page.url}")
     
-    # Tunggu untuk inisialisasi API awal dan pemuatan stream default
-    await page.wait_for_timeout(5000) 
+    # Tunggu sebentar
+    await page.wait_for_timeout(4000)
 
-    # KITA MENGABAIKAN SEMUA KLIK VISUAL YANG GAGAL SEBELUMNYA
+    try:
+        # --- STRATEGI V23: KLIK TOMBOL 'WATCH ONLINE' (DARI SOURCE HTML) ---
+        print("   - Mencoba klik tombol 'Watch Online'...")
 
-    # Beri waktu tambahan untuk menangkap Master Playlist yang mungkin datang lambat
-    await page.wait_for_timeout(10000) 
+        # Selector berdasarkan source code mobile yang Anda kirim
+        watch_selectors = [
+            '.watch-btn',               # Class spesifik dari source.txt
+            'div[class*="watch-btn"]',  # Variasi class
+            'h3:has-text("Watch Online")', # Teks di dalam tombol
+            '.pc-watch-btn'             # Versi PC dari source code
+        ]
+        
+        clicked = False
+        for selector in watch_selectors:
+            try:
+                # Coba klik jika elemen ada
+                if await page.locator(selector).count() > 0:
+                    await page.click(selector, timeout=2000, force=True)
+                    print(f"   - BERHASIL klik tombol: {selector}")
+                    clicked = True
+                    break
+            except Exception:
+                continue
+        
+        # Jika tombol watch online tidak ketemu, coba klik video player langsung
+        if not clicked:
+             print("   - Tombol Watch Online tidak ditemukan, klik player video...")
+             try:
+                 await page.click('video', timeout=1000, force=True)
+             except:
+                 pass
+        
+        # Beri waktu cukup lama agar Master Playlist dimuat
+        await page.wait_for_timeout(12000) 
 
-    # --- ANALISIS RESPONS API (V23: Filtering M3U8 Ketat) ---
-    print(f"   - Memeriksa {len(candidate_requests)} request API/XHR dan URL Stream yang ditangkap...")
-    
-    streams_candidates = streams.copy() 
-    
-    # Analisis Respons XHR/Fetch untuk mencari URL di dalamnya
-    for req in candidate_requests:
-        try:
-            response = await req.response()
-            
-            if response and response.status == 200:
-                text = await response.text()
-                
-                if any(ext in text for ext in [".m3u8", ".mp4", ".mpd"]):
-                    
-                    found_urls = re.findall(r'(https?:\/\/[^\s"\']*\.(?:m3u8|mp4|mpd|ts)[^\s"\']*)', text)
-                    
-                    for fu in found_urls:
-                        # Filter dasar
-                        if "thumb" not in fu and "ad" not in fu and "tracking" not in fu:
-                            streams_candidates.append(fu)
+    except Exception as e:
+        print(f"   - Error interaksi: {e}")
+        pass
 
-        except Exception:
-            pass
-            
     page.remove_listener("request", on_request)
 
-    # Kembalikan URL streaming terbaik (terpanjang, M3U8 diprioritaskan, non-trailer)
-    if streams_candidates:
-        unique_streams = list(set(streams_candidates))
+    # --- FILTERING STREAM (V23) ---
+    # Prioritaskan .m3u8 dan hindari URL trailer (-ld.mp4)
+    
+    if streams:
+        unique_streams = list(set(streams))
         
-        # Pisahkan menjadi non-trailer dan trailer
-        full_movies = [s for s in unique_streams if "trailer" not in s.lower()]
+        # 1. Cari Master Playlist (.m3u8) - INI PRIORITAS UTAMA
+        m3u8_lists = [s for s in unique_streams if ".m3u8" in s]
+        if m3u8_lists:
+            # Urutkan berdasarkan panjang URL (biasanya URL asli lebih panjang/kompleks)
+            m3u8_lists.sort(key=len, reverse=True)
+            print(f"     -> Ditemukan M3U8 Master Playlist: {m3u8_lists[0]}")
+            return m3u8_lists[0]
 
+        # 2. Jika tidak ada m3u8, cari MP4 yang BUKAN trailer
+        # Trailer biasanya punya suffix "-ld.mp4" (Low Definition)
+        mp4_lists = [s for s in unique_streams if ".mp4" in s]
+        full_movies = [s for s in mp4_lists if "-ld.mp4" not in s and "trailer" not in s.lower()]
+        
         if full_movies:
-            # Prioritas 1: M3U8 Master Playlist
-            master_playlists = [s for s in full_movies if s.lower().endswith('.m3u8')]
-            if master_playlists:
-                # Ambil M3U8 terpanjang (kemungkinan Master Playlist)
-                master_playlists.sort(key=len, reverse=True)
-                return master_playlists[0]
-            
-            # Prioritas 2: Stream non-M3U8/non-trailer terpanjang (kemungkinan MP4 kualitas tinggi)
             full_movies.sort(key=len, reverse=True)
+            print(f"     -> Ditemukan MP4 Film Penuh (Non-LD): {full_movies[0]}")
             return full_movies[0]
-        else:
-            # Jika hanya trailer yang tersisa (mengandung 'trailer' di URL)
-            unique_streams.sort(key=len, reverse=True)
-            return unique_streams[0]
-    else:
-        return None
 
-# --- FUNGSI PENGAMBIL FILM (TERBUKTI BERHASIL) ---
+        # 3. Fallback: Jika hanya ada trailer, ambil itu daripada kosong
+        if mp4_lists:
+            mp4_lists.sort(key=len, reverse=True)
+            print("     -> Hanya ditemukan trailer/LD stream.")
+            return mp4_lists[0]
+
+    return None
+
+# --- FUNGSI PENGAMBIL FILM ---
 
 async def get_movies(page):
     print("   - Mengunjungi halaman utama...")
@@ -130,26 +142,20 @@ async def get_movies(page):
     
     try:
         await page.wait_for_selector("div.movie-list, div.row, main", state="visible", timeout=15000)
-        print("   - Elemen utama halaman berhasil dimuat.")
     except PlaywrightTimeoutError:
-        print("   - Peringatan: Elemen utama halaman tidak terdeteksi dalam 15s.")
         pass
     
-    print("   - Melakukan scroll untuk lazy-loading...")
+    print("   - Melakukan scroll...")
     await auto_scroll(page)
 
-    cards = await page.query_selector_all(
-        "a[href*='/movie/'], " + "a[href*='/detail?id='], " + "a:has(img)"                 
-    )
+    cards = await page.query_selector_all("a[href*='/movie/'], a[href*='/detail?id='], a:has(img)")
     
     movies = []
     unique_urls = set() 
     
     for c in cards:
         href = await c.get_attribute("href")
-        
         if href and (href.startswith("/movie/") or "/detail" in href):
-            
             title = (await c.inner_text() or "").strip()
             if len(title) < 2:
                  title_element = await c.query_selector('h3, p.title, span.title')
@@ -168,32 +174,25 @@ async def get_movies(page):
 async def main():
     print("▶ Mengambil data MovieBox...")
     async with async_playwright() as p:
-        # User Agent Android untuk melewati blokir mobile-only
+        # Gunakan User Agent Android (Penting!)
         ANDROID_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.131 Mobile Safari/537.36"
         
-        # PERBAIKAN: Tangkapan layar 1002135284.jpg menunjukkan error syntax di baris 82, 
-        # yang kemungkinan disebabkan oleh karakter khusus di header (yang tidak terlihat di sini).
-        # Saya mengasumsikan kode di atas (yang bersih) sudah mengatasi error tersebut.
-        
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            user_agent=ANDROID_USER_AGENT 
-        )
+        context = await browser.new_context(user_agent=ANDROID_USER_AGENT)
         page = await context.new_page()
 
         movies = await get_movies(page)
-
         print(f"✔ Film ditemukan: {len(movies)}")
         
         results = []
-        # Menggunakan limit 10 film untuk testing
-        print(f"⚙️ Memproses {min(len(movies), TEST_LIMIT)} film pertama untuk testing...")
+        # Proses 10 film untuk testing
+        print(f"⚙️ Memproses {min(len(movies), TEST_LIMIT)} film pertama...")
 
         for m in movies[:TEST_LIMIT]:
             print("▶ Ambil stream:", m["title"])
             m["stream"] = await get_stream_url(page, m["url"]) 
             if m["stream"]:
-                print(f"   - BERHASIL mendapatkan URL stream.")
+                print(f"   - BERHASIL: {m['stream']}")
             else:
                 print("   - GAGAL mendapatkan URL stream.")
             results.append(m)
