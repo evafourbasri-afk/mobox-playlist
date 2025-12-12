@@ -1,4 +1,4 @@
-# mobox.py v27 — JS Click & Keyboard Press (Final Attempt)
+# mobox.py v28 — API Interception Strategy (Final)
 
 import asyncio
 import re
@@ -36,121 +36,103 @@ def build_m3u(items):
 async def get_stream_url(page, url):
     streams = []
     
-    # Listener request (Fokus M3U8/MP4)
+    # Listener request (Fokus M3U8, MP4, dan API JSON yang mungkin memuat URL)
     def on_request(req):
         u = req.url
+        
+        # Prioritas 1: Langsung Ambil Stream Media
         if any(ext in u for ext in [".m3u8", ".mp4", ".mpd"]):
             # Pastikan bukan iklan/tracking
             if "adservice" not in u and "tracking" not in u and "google" not in u:
                  streams.append(u)
+        
+        # Prioritas 2: Ambil API Call (Mungkin memuat data resolusi tinggi)
+        # Mencari endpoint API umum yang sering membawa URL stream: /vod, /resource, /stream
+        if "/vod" in u or "/resource" in u or "/stream" in u or "aoneroom" in u and ".json" in u:
+            # Kita hanya menyimpan URL request API, nanti akan diolah setelah navigasi.
+            streams.append(u) 
 
     page.on("request", on_request)
 
     await page.goto(url, wait_until="domcontentloaded") 
     print(f"   - URL Redirect: {page.url}")
-    await page.wait_for_timeout(4000)
-
-    try:
-        # 1. Inject CSS (Overlay Killer)
-        print("   - Inject CSS untuk menyembunyikan overlay/iklan...")
-        # Tambahkan pointer-events: auto pada body untuk memastikan elemen di bawahnya dapat diklik
-        await page.add_style_tag(content="""
-            /* Target semua elemen pop-up/overlay/iklan dengan z-index tinggi */
-            body > div[style*='z-index: 1000'] { 
-                display: none !important; 
-                visibility: hidden !important;
-            }
-            div[class*="dialog"], div[class*="modal"], div[class*="overlay"], 
-            div[class*="popup"], .pc-scan-qr, .pc-download-content, 
-            .h5-detail-banner, .footer-box { 
-                display: none !important; 
-                visibility: hidden !important;
-                pointer-events: none !important;
-                z-index: -9999 !important;
-            }
-            body { 
-                pointer-events: auto !important;
-            }
-        """)
-        
-        # 2. Rangkaian Interaksi (JS Click & Keyboard Press)
-        print("   - Memulai rangkaian interaksi: JS Click dan Keyboard Press...")
-        
-        # A. Coba klik Tombol 'film' menggunakan JavaScript (mengabaikan visibilitas DOM)
-        js_click_success = await page.evaluate('''
-            () => {
-                const filmTab = document.querySelector('.type-item:has(span:text-is("film")), .source-tab:has(span:text-is("film"))');
-                if (filmTab) {
-                    filmTab.click(); // JS click
-                    return true;
-                }
-                const watchBtn = document.querySelector('.pc-watch-btn, .watch-btn');
-                if (watchBtn) {
-                    watchBtn.click(); // Fallback ke Watch Online
-                    return true;
-                }
-                return false;
-            }
-        ''')
-        
-        if js_click_success:
-            print("     -> JS Click 'film' atau 'Watch Online' Berhasil dipicu.")
-            # Setelah klik, coba fokus pada elemen tersebut dan tekan Enter (simulasi yang lebih humanis)
-            try:
-                 await page.locator('.type-item:has(span:text-is("film")), .source-tab:has(span:text-is("film")), .pc-watch-btn, .watch-btn').focus(timeout=3000)
-                 await page.keyboard.press('Enter')
-                 print("     -> Keyboard Enter Press Diterapkan.")
-            except:
-                 pass
-        else:
-             print("     -> Gagal menemukan target click melalui JS.")
-
-        
-        # C. Berikan jeda waktu lebih untuk memuat stream dari sumber alternatif
-        await page.wait_for_timeout(15000) 
-
-    except Exception as e:
-        print(f"   - Error proses interaksi: {e}")
-        pass
-
+    
+    # Berikan waktu 15 detik agar semua AJAX/API call sempat dipicu dan terekam
+    await page.wait_for_timeout(15000) 
+    
     page.remove_listener("request", on_request)
 
     # 3. Filtering Hasil yang Ditingkatkan (Mencari Full Stream)
     if streams:
         unique_streams = list(set(streams))
         
+        # **Langkah Baru:** Coba ambil Stream dari API Response (Jika ada)
+        api_urls = [s for s in unique_streams if not any(ext in s for ext in [".m3u8", ".mp4", ".mpd"])]
+        media_urls = [s for s in unique_streams if any(ext in s for ext in [".m3u8", ".mp4", ".mpd"])]
+        
+        for api_u in api_urls:
+            if len(media_urls) >= 10: # Batasi overhead jika sudah banyak stream
+                 break
+
+            print(f"     -> Menganalisis API Response dari: {api_u}")
+            try:
+                # Ambil response dari API call
+                api_response = await page.request.get(api_u)
+                
+                # Coba parse response sebagai JSON
+                json_data = await api_response.json()
+                
+                # Cari URL stream di dalam JSON (pencarian rekursif sederhana)
+                def search_for_stream(obj):
+                    if isinstance(obj, dict):
+                        for k, v in obj.items():
+                            if isinstance(v, str) and any(ext in v for ext in [".m3u8", ".mp4", ".mpd"]):
+                                media_urls.append(v)
+                            search_for_stream(v)
+                    elif isinstance(obj, list):
+                        for item in obj:
+                            search_for_stream(item)
+
+                search_for_stream(json_data)
+                
+            except Exception as e:
+                # Gagal parse JSON atau gagal request, lanjukan ke URL berikutnya
+                pass
+
+        # Ulangi filtering pada semua URL media yang ditemukan (termasuk dari API response)
+        
         # Prioritas 1: Stream M3U8 Kualitas Tinggi (bukan trailer dan non-ld)
         high_quality_m3u8 = [
-            s for s in unique_streams 
+            s for s in media_urls 
             if "-ld.mp4" not in s and "trailer" not in s.lower() and s.endswith(".m3u8")
         ]
         if high_quality_m3u8:
             high_quality_m3u8.sort(key=len, reverse=True) 
-            print(f"     -> Ditemukan M3U8 Kualitas Tinggi: {high_quality_m3u8[0]}")
+            print(f"     -> Ditemukan M3U8 Kualitas Tinggi (Non-LD): {high_quality_m3u8[0]}")
             return high_quality_m3u8[0]
 
         # Prioritas 2: MP4 Kualitas Tinggi (bukan trailer dan non-ld)
         full_movies_mp4 = [
-            s for s in unique_streams 
+            s for s in media_urls 
             if "-ld.mp4" not in s and "trailer" not in s.lower() and s.endswith(".mp4")
         ]
         if full_movies_mp4:
             full_movies_mp4.sort(key=len, reverse=True)
-            print(f"     -> Ditemukan MP4 Full: {full_movies_mp4[0]}")
+            print(f"     -> Ditemukan MP4 Full (Non-LD): {full_movies_mp4[0]}")
             return full_movies_mp4[0]
             
         # Prioritas 3: Semua M3U8 (Fallback)
-        m3u8_fallback = [s for s in unique_streams if s.endswith(".m3u8")]
+        m3u8_fallback = [s for s in media_urls if s.endswith(".m3u8")]
         if m3u8_fallback:
              m3u8_fallback.sort(key=len, reverse=True)
-             print(f"     -> Fallback ke M3U8: {m3u8_fallback[0]}")
+             print(f"     -> Fallback ke M3U8 (Termasuk LD): {m3u8_fallback[0]}")
              return m3u8_fallback[0]
 
         # Prioritas 4: Semua Stream Tersisa (Termasuk LD/Trailer sebagai upaya terakhir)
-        if unique_streams:
-            unique_streams.sort(key=len, reverse=True)
-            print(f"     -> Fallback ke Stream Apapun: {unique_streams[0]}")
-            return unique_streams[0]
+        if media_urls:
+            media_urls.sort(key=len, reverse=True)
+            print(f"     -> Fallback ke Stream Apapun (Termasuk LD): {media_urls[0]}")
+            return media_urls[0]
 
     return None
 
