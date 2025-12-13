@@ -9,17 +9,13 @@ import os
 BASE_URL = "https://new29.ngefilm.site" 
 ref = "https://new29.ngefilm.site" 
 
-# LIST BARU: Menambahkan domain player yang ditemukan
+# LIST BARU: Menambahkan domain player yang ditemukan di HTML
 UNIVERSAL_DOMAINS = [
-    'playerngefilm21.rpmlive.online', 
-    'rpmlive.online', # Domain dasar, untuk keamanan
-    'filepress.cloud', # Ditemukan di link download
-    'telegra.ph', # Ditemukan di link download
-    'dw.zeus.fun', 
-    'klik.top',
-    'gacor.vin',
-    't.ly',
-    'heylink.cam'
+    'playerngefilm21.rpmlive.online', # Domain player utama yang ditemukan di HTML
+    'rpmlive.online', 
+    'filepress.cloud', 
+    'telegra.ph', 
+    'server-x7.xyz' # Domain iklan yang mungkin berhubungan dengan player
 ] 
 # ---------------------------------------------------
 
@@ -110,6 +106,7 @@ async def process_item(item):
     
     async with async_playwright() as p:
         try:
+            # Menggunakan p.chromium.launch() yang stabil
             browser = await p.chromium.launch(
                 executable_path="/usr/bin/google-chrome",
                 headless=True,
