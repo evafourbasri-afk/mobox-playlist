@@ -4,21 +4,15 @@ from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 from pathlib import Path
 import os
-import shutil # Diperlukan jika ingin membersihkan direktori /tmp, tapi kita hilangkan saja
 
 # --- KONFIGURASI DISEMATKAN LANGSUNG (HARDCODED) ---
-BASE_URL = "https://new29.ngefilm.site"
-ref = "https://new29.ngefilm.site"
-# Daftar domain streaming. Sesuaikan jika player di situs berubah.
+BASE_URL = "https://www.ngefilm21.pw"
+ref = "https://www.ngefilm21.pw"
+# Daftar domain streaming. Pastikan ini sesuai dengan player yang digunakan situs tersebut.
 UNIVERSAL_DOMAINS = ['cdnplayer.net', 'streamgud.xyz', 'vidcloud.tv', 'gostrem.net'] 
 # ---------------------------------------------------
 
 OUTPUT_FILE = Path("ngefilm.m3u")
-
-# Hapus variabel USER_DATA dan USER_DATA_IFRAME, serta os.makedirs,
-# karena kita tidak lagi menggunakan fitur user_data_dir yang menyebabkan error.
-# os.makedirs(USER_DATA, exist_ok=True) 
-# os.makedirs(USER_DATA_IFRAME, exist_ok=True) 
 
 INDEX_URL = f"{BASE_URL}/page/"
 
@@ -73,7 +67,6 @@ def get_items():
             
         print("➕ Total sementara:", len(all_results))
 
-    # Pastikan hasil yang dikembalikan hanya 20 item (atau kurang)
     final_results = all_results[:20]
 
     print(f"\n🎉 TOTAL FINAL (Dibatasi untuk Uji Coba): {len(final_results)} film\n")
@@ -92,9 +85,7 @@ async def process_item(item):
     """Menggunakan Playwright (launch sederhana) untuk menemukan tautan m3u8 dari iframe."""
     slug = item["slug"]
 
-    # Argumen yang akan digunakan saat meluncurkan browser
     launch_args = [
-        # Argumen yang stabil untuk headless browser di server
         "--disable-gpu-sandbox",
         "--disable-setuid-sandbox",
         "--disable-blink-features=AutomationControlled",
@@ -108,7 +99,6 @@ async def process_item(item):
     
     async with async_playwright() as p:
         try:
-            # Menggunakan p.chromium.launch() yang sederhana dan stabil
             browser = await p.chromium.launch(
                 executable_path="/usr/bin/google-chrome",
                 headless=True,
@@ -118,7 +108,6 @@ async def process_item(item):
             print(f"❌ Playwright Launch Error for {slug}: {e}")
             return (item, None)
             
-        # Membuat context baru dan halaman baru dari browser
         context = await browser.new_context()
         page = await context.new_page()
 
@@ -157,7 +146,6 @@ async def process_item(item):
                 if found is None:
                     found = url
                     print("🔥 STREAM:", url)
-                # Lanjutkan request dengan header yang benar
                 return await route.continue_(headers={"referer": iframe, "user-agent": "Mozilla/5.0"})
             return await route.continue_()
 
@@ -168,7 +156,6 @@ async def process_item(item):
         except:
             pass
 
-        # Tunggu hingga m3u8 ditemukan (maksimal 15 detik)
         for _ in range(15):
             if found:
                 break
@@ -183,7 +170,6 @@ async def main():
     if not items:
         return
 
-    # Batasi concurrency (operasi Playwright simultan)
     sem = asyncio.Semaphore(5)
     async def sem_task(item):
         async with sem:
@@ -191,10 +177,8 @@ async def main():
 
     tasks = [sem_task(item) for item in items]
     
-    # Jalankan semua tugas secara paralel
     results = await asyncio.gather(*tasks)
 
-    # Menulis hasil ke file M3U
     with OUTPUT_FILE.open("w", encoding="utf-8") as f:
         f.write("#EXTM3U\n\n")
         for item, m3u8 in results:
