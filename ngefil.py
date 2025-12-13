@@ -9,11 +9,12 @@ import os
 BASE_URL = "https://new29.ngefilm.site" 
 ref = "https://new29.ngefilm.site" 
 
-# LIST BARU: Menambahkan domain player yang ditemukan sebelumnya di HTML situs
+# LIST BARU: Menyertakan domain player yang paling mungkin benar 
+# berdasarkan inspeksi elemen sebelumnya di situs.
 UNIVERSAL_DOMAINS = [
     'playerngefilm21.rpmlive.online', 
     'rpmlive.online', 
-    'filepress.cloud', # Ditemukan di link download, mungkin relevan
+    'filepress.cloud', 
     'telegra.ph', 
     'server-x7.xyz'
 ] 
@@ -29,6 +30,7 @@ def get_items():
     all_results = []
     seen = set()
     
+    # Batasi iterasi halaman (hanya halaman 8 hingga 9)
     for page in range(8, 10): 
         if len(all_results) >= 20:
             break
@@ -73,6 +75,7 @@ def get_items():
             
         print("➕ Total sementara:", len(all_results))
 
+    # Memastikan output maksimal 20 item
     final_results = all_results[:20]
 
     print(f"\n🎉 TOTAL FINAL (Dibatasi untuk Uji Coba): {len(final_results)} film\n")
@@ -88,10 +91,11 @@ def print_m3u(item, m3u8, out):
     out.write(f"{m3u8}\n\n")
 
 async def process_item(item):
-    """Menggunakan Playwright (launch sederhana) untuk menemukan tautan m3u8 dari iframe."""
+    """Menggunakan Playwright (launch sederhana, stabil) untuk menemukan tautan m3u8 dari iframe."""
     slug = item["slug"]
 
     launch_args = [
+        # Argumen yang stabil untuk headless browser di server GitHub Actions
         "--disable-gpu-sandbox",
         "--disable-setuid-sandbox",
         "--disable-blink-features=AutomationControlled",
@@ -105,6 +109,7 @@ async def process_item(item):
     
     async with async_playwright() as p:
         try:
+            # Menggunakan p.chromium.launch() yang sederhana dan stabil
             browser = await p.chromium.launch(
                 executable_path="/usr/bin/google-chrome",
                 headless=True,
@@ -130,7 +135,7 @@ async def process_item(item):
             frames = await page.query_selector_all("iframe")
             for fr in frames:
                 src = await fr.get_attribute("src")
-                # Kunci: Mengecek apakah src iframe mengandung salah satu domain universal yang baru
+                # Kunci: Mengecek apakah src iframe mengandung salah satu domain universal
                 if src and any(d in src.lower() for d in UNIVERSAL_DOMAINS):
                     iframe = src
                     break
@@ -149,6 +154,7 @@ async def process_item(item):
             url = request.url
             is_fake = url.endswith(".txt") or url.endswith(".woff") or url.endswith(".woff2")
             
+            # Cek jika URL mengandung m3u8 dan bukan file palsu/font
             if ".m3u8" in url and not is_fake:
                 if found is None:
                     found = url
@@ -163,6 +169,7 @@ async def process_item(item):
         except:
             pass
 
+        # Tunggu hingga m3u8 ditemukan (maksimal 15 detik)
         for _ in range(15):
             if found:
                 break
