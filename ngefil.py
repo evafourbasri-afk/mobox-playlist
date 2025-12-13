@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 from pathlib import Path
 import os
+import shutil # Diperlukan jika ingin membersihkan direktori /tmp, tapi kita hilangkan saja
 
 # --- KONFIGURASI DISEMATKAN LANGSUNG (HARDCODED) ---
 BASE_URL = "https://new29.ngefilm.site"
@@ -13,10 +14,11 @@ UNIVERSAL_DOMAINS = ['cdnplayer.net', 'streamgud.xyz', 'vidcloud.tv', 'gostrem.n
 # ---------------------------------------------------
 
 OUTPUT_FILE = Path("ngefilm.m3u")
-USER_DATA = "/tmp/ngefilm_profile"
-USER_DATA_IFRAME = "/tmp/ngefilm_iframe_profile"
-os.makedirs(USER_DATA, exist_ok=True)
-os.makedirs(USER_DATA_IFRAME, exist_ok=True)
+
+# Hapus variabel USER_DATA dan USER_DATA_IFRAME, serta os.makedirs,
+# karena kita tidak lagi menggunakan fitur user_data_dir yang menyebabkan error.
+# os.makedirs(USER_DATA, exist_ok=True) 
+# os.makedirs(USER_DATA_IFRAME, exist_ok=True) 
 
 INDEX_URL = f"{BASE_URL}/page/"
 
@@ -27,7 +29,6 @@ def get_items():
     seen = set()
     
     # Batasi iterasi halaman (Misal: hanya halaman 8 hingga 9)
-    # untuk mendapatkan 20 film pertama lebih cepat
     for page in range(8, 10): 
         if len(all_results) >= 20:
             break
@@ -88,11 +89,12 @@ def print_m3u(item, m3u8, out):
     out.write(f"{m3u8}\n\n")
 
 async def process_item(item):
-    """Menggunakan Playwright untuk menemukan tautan m3u8 dari iframe."""
+    """Menggunakan Playwright (launch sederhana) untuk menemukan tautan m3u8 dari iframe."""
     slug = item["slug"]
 
     # Argumen yang akan digunakan saat meluncurkan browser
     launch_args = [
+        # Argumen yang stabil untuk headless browser di server
         "--disable-gpu-sandbox",
         "--disable-setuid-sandbox",
         "--disable-blink-features=AutomationControlled",
@@ -106,9 +108,8 @@ async def process_item(item):
     
     async with async_playwright() as p:
         try:
-            # Menggunakan launch_persistent_context() karena user_data_dir digunakan
-            context = await p.chromium.launch_persistent_context(
-                user_data_dir=USER_DATA_IFRAME,
+            # Menggunakan p.chromium.launch() yang sederhana dan stabil
+            browser = await p.chromium.launch(
                 executable_path="/usr/bin/google-chrome",
                 headless=True,
                 args=launch_args
@@ -117,6 +118,8 @@ async def process_item(item):
             print(f"❌ Playwright Launch Error for {slug}: {e}")
             return (item, None)
             
+        # Membuat context baru dan halaman baru dari browser
+        context = await browser.new_context()
         page = await context.new_page()
 
         # Cari iframe universal
@@ -124,7 +127,6 @@ async def process_item(item):
         for player in range(1, 6):
             urlp = f"{BASE_URL}/{slug}/?player={player}"
             try:
-                # Timeout diatur ke 0 (tidak ada timeout) karena sudah dihandle di atas
                 await page.goto(urlp, timeout=0) 
                 await page.wait_for_timeout(3000)
             except:
@@ -141,7 +143,7 @@ async def process_item(item):
 
         if not iframe:
             print(f"❌ Skip {slug} — tidak ada iframe universal")
-            await context.close()
+            await browser.close()
             return (item, None)
 
         # Extract m3u8 melalui network interception
@@ -151,7 +153,6 @@ async def process_item(item):
             url = request.url
             is_fake = url.endswith(".txt") or url.endswith(".woff") or url.endswith(".woff2")
             
-            # Cek jika URL mengandung m3u8 dan bukan file palsu/font
             if ".m3u8" in url and not is_fake:
                 if found is None:
                     found = url
@@ -173,7 +174,7 @@ async def process_item(item):
                 break
             await asyncio.sleep(1)
 
-        await context.close()
+        await browser.close()
         return (item, found)
 
 async def main():
