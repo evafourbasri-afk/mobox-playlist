@@ -8,7 +8,7 @@ import os
 # --- KONFIGURASI DISEMATKAN LANGSUNG (HARDCODED) ---
 BASE_URL = "https://new29.ngefilm.site"
 ref = "https://new29.ngefilm.site"
-# Daftar domain streaming.
+# Daftar domain streaming. Sesuaikan jika player di situs berubah.
 UNIVERSAL_DOMAINS = ['cdnplayer.net', 'streamgud.xyz', 'vidcloud.tv', 'gostrem.net'] 
 # ---------------------------------------------------
 
@@ -26,8 +26,8 @@ def get_items():
     all_results = []
     seen = set()
     
-    # Batasi iterasi halaman (Misal: hanya halaman 8 dan 9)
-    # Ini membantu mendapatkan 20 film lebih cepat tanpa harus loop ke halaman 15.
+    # Batasi iterasi halaman (Misal: hanya halaman 8 hingga 9)
+    # untuk mendapatkan 20 film pertama lebih cepat
     for page in range(8, 10): 
         if len(all_results) >= 20:
             break
@@ -78,8 +78,6 @@ def get_items():
     print(f"\n🎉 TOTAL FINAL (Dibatasi untuk Uji Coba): {len(final_results)} film\n")
     return final_results
 
-# ... (Sisa fungsi print_m3u, process_item, dan main tetap SAMA) ...
-
 def print_m3u(item, m3u8, out):
     """Menulis entri film ke dalam format M3U."""
     title = item["title"]
@@ -92,24 +90,33 @@ def print_m3u(item, m3u8, out):
 async def process_item(item):
     """Menggunakan Playwright untuk menemukan tautan m3u8 dari iframe."""
     slug = item["slug"]
+
+    # Argumen yang akan digunakan saat meluncurkan browser
+    launch_args = [
+        "--disable-gpu-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-blink-features=AutomationControlled",
+        "--disable-web-security",
+        "--disable-infobars",
+        "--ignore-certificate-errors",
+        "--use-gl=swiftshader",
+        "--no-sandbox",
+        "--window-size=1280,720",
+    ]
+    
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            executable_path="/usr/bin/google-chrome", 
-            headless=True,
-            args=[
-                f"--user-data-dir={USER_DATA_IFRAME}",
-                "--disable-gpu-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-blink-features=AutomationControlled",
-                "--disable-web-security",
-                "--disable-infobars",
-                "--ignore-certificate-errors",
-                "--use-gl=swiftshader",
-                "--no-sandbox",
-                "--window-size=1280,720",
-            ]
-        )
-        context = await browser.new_context()
+        try:
+            # Menggunakan launch_persistent_context() karena user_data_dir digunakan
+            context = await p.chromium.launch_persistent_context(
+                user_data_dir=USER_DATA_IFRAME,
+                executable_path="/usr/bin/google-chrome",
+                headless=True,
+                args=launch_args
+            )
+        except Exception as e:
+            print(f"❌ Playwright Launch Error for {slug}: {e}")
+            return (item, None)
+            
         page = await context.new_page()
 
         # Cari iframe universal
@@ -117,7 +124,8 @@ async def process_item(item):
         for player in range(1, 6):
             urlp = f"{BASE_URL}/{slug}/?player={player}"
             try:
-                await page.goto(urlp, timeout=0)
+                # Timeout diatur ke 0 (tidak ada timeout) karena sudah dihandle di atas
+                await page.goto(urlp, timeout=0) 
                 await page.wait_for_timeout(3000)
             except:
                 continue
@@ -133,7 +141,7 @@ async def process_item(item):
 
         if not iframe:
             print(f"❌ Skip {slug} — tidak ada iframe universal")
-            await browser.close()
+            await context.close()
             return (item, None)
 
         # Extract m3u8 melalui network interception
@@ -142,10 +150,13 @@ async def process_item(item):
             nonlocal found
             url = request.url
             is_fake = url.endswith(".txt") or url.endswith(".woff") or url.endswith(".woff2")
+            
+            # Cek jika URL mengandung m3u8 dan bukan file palsu/font
             if ".m3u8" in url and not is_fake:
                 if found is None:
                     found = url
                     print("🔥 STREAM:", url)
+                # Lanjutkan request dengan header yang benar
                 return await route.continue_(headers={"referer": iframe, "user-agent": "Mozilla/5.0"})
             return await route.continue_()
 
@@ -162,7 +173,7 @@ async def process_item(item):
                 break
             await asyncio.sleep(1)
 
-        await browser.close()
+        await context.close()
         return (item, found)
 
 async def main():
