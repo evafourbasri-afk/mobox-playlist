@@ -1,8 +1,5 @@
 name: 🎥 M3U Scraper (ngefil.py)
 
-# Menentukan kapan workflow ini akan berjalan:
-# 1. Manual dari tab Actions
-# 2. Jadwal harian (pukul 02:00 UTC)
 on:
   workflow_dispatch:
   schedule:
@@ -11,48 +8,41 @@ on:
 jobs:
   scrape_and_update:
     runs-on: ubuntu-latest
-    
-    # Batas waktu maksimal untuk job ini
     timeout-minutes: 30 
 
     steps:
     - name: ⬇️ Checkout Repository
-      # Mengambil semua kode dari repositori
       uses: actions/checkout@v4
 
     - name: ⚙️ Set up Python Environment
-      # Menyiapkan Python versi 3.10
+      # TIDAK ADA PARAMETER 'cache' DI SINI
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-        # Menonaktifkan caching otomatis berdasarkan file dependensi
-        cache: false 
     
     # --- Pemasangan Dependensi ---
     
     - name: 📦 Install Python Dependencies
+      # Instalasi dilakukan secara manual di langkah ini
       run: |
         echo "Installing Python libraries: requests, beautifulsoup4, playwright..."
         pip install requests beautifulsoup4 playwright
         
         echo "Installing Chromium browser for Playwright..."
-        # Playwright memerlukan browser (Chromium) yang terinstal di runner
         playwright install chromium
     
     # --- Eksekusi Skrip ---
 
     - name: 🚀 Run Python Scraper Script
-      # Menjalankan skrip utama
       run: python ngefil.py
 
     # --- Penyimpanan Hasil ---
 
     - name: 💾 Commit and Push M3U File
-      # Menggunakan action untuk secara otomatis commit dan push file output
       uses: stefanzweifel/git-auto-commit-action@v5
       with:
         commit_message: "🤖 Update M3U Playlist: ngefilm.m3u (Automated Scrape)"
-        files: ngefilm.m3u # Nama file output dari skrip Python
+        files: ngefilm.m3u
         branch: main 
         commit_user_name: GitHub Actions Bot
         commit_user_email: actions@github.com
