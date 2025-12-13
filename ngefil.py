@@ -6,10 +6,21 @@ from pathlib import Path
 import os
 
 # --- KONFIGURASI DISEMATKAN LANGSUNG (HARDCODED) ---
-BASE_URL = "https://new29.ngefilm.site" # <--- DIKEMBALIKAN KE DOMAIN INI
-ref = "https://new29.ngefilm.site" # <--- DIKEMBALIKAN KE DOMAIN INI
-# Daftar domain streaming.
-UNIVERSAL_DOMAINS = ['cdnplayer.net', 'streamgud.xyz', 'vidcloud.tv', 'gostrem.net'] 
+BASE_URL = "https://new29.ngefilm.site" 
+ref = "https://new29.ngefilm.site" 
+
+# LIST BARU: Menambahkan domain player yang ditemukan
+UNIVERSAL_DOMAINS = [
+    'playerngefilm21.rpmlive.online', 
+    'rpmlive.online', # Domain dasar, untuk keamanan
+    'filepress.cloud', # Ditemukan di link download
+    'telegra.ph', # Ditemukan di link download
+    'dw.zeus.fun', 
+    'klik.top',
+    'gacor.vin',
+    't.ly',
+    'heylink.cam'
+] 
 # ---------------------------------------------------
 
 OUTPUT_FILE = Path("ngefilm.m3u")
@@ -124,6 +135,7 @@ async def process_item(item):
             frames = await page.query_selector_all("iframe")
             for fr in frames:
                 src = await fr.get_attribute("src")
+                # Kunci: Mengecek apakah src iframe mengandung salah satu domain universal yang baru
                 if src and any(d in src.lower() for d in UNIVERSAL_DOMAINS):
                     iframe = src
                     break
