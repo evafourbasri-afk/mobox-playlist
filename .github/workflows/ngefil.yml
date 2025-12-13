@@ -1,20 +1,22 @@
-name: 🎥 M3U Scraper
+name: 🎥 M3U Scraper (ngefil.py)
 
 # Menentukan kapan workflow ini akan berjalan
 on:
-  # Jalankan secara manual (untuk testing)
+  # Opsi 1: Jalankan secara manual dari tab Actions di GitHub
   workflow_dispatch:
-  # Jalankan setiap hari pukul 02:00 UTC
+  # Opsi 2: Jalankan setiap hari pada pukul 02:00 UTC (Waktu Server GitHub)
   schedule:
-    - cron: '0 2 * * *'
+    - cron: '0 2 * * *' 
+  # Opsi 3: Jalankan setiap kali ada perubahan yang digabungkan ke branch utama (opsional)
+  # push:
+  #   branches: [ main ]
 
-# Mendefinisikan variabel lingkungan yang akan digunakan
-env:
-  CONFIG_FILE_PATH: /home/runner/steramest2data_file.txt
-  
 jobs:
   scrape_and_update:
     runs-on: ubuntu-latest
+    
+    # Timeout agar workflow tidak berjalan terlalu lama jika ada masalah
+    timeout-minutes: 30 
 
     steps:
     - name: ⬇️ Checkout Repository
@@ -24,30 +26,23 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-        cache: 'pip'
+        cache: 'pip' # Mempercepat instalasi dependensi
     
     # --- Pemasangan Dependensi ---
     
     - name: 📦 Install Python Dependencies
       run: |
-        pip install requests beautifulsoup4
-        pip install playwright
+        echo "Installing required Python libraries..."
+        pip install requests beautifulsoup4 playwright
+        
+        echo "Installing Chromium browser for Playwright..."
+        # Playwright harus menginstal browser untuk dijalankan
         playwright install chromium
     
-    # --- Penyiapan File Konfigurasi (PENTING) ---
-    # File ini harus berada di direktori home runner untuk diakses oleh skrip
-    - name: 📝 Create Config File (steramest2data_file.txt)
-      run: |
-        cat << EOF > $CONFIG_FILE_PATH
-        BASE_URL=${{ secrets.BASE_URL }}
-        ref=${{ secrets.BASE_URL }}
-        UNIVERSAL_DOMAINS=${{ secrets.UNIVERSAL_DOMAINS }}
-        EOF
-
     # --- Eksekusi Skrip ---
 
     - name: 🚀 Run Python Scraper Script
-      # BARIS INI TELAH DISESUAIKAN:
+      # Menjalankan skrip ngefil.py
       run: python ngefil.py
 
     # --- Penyimpanan Hasil ---
@@ -55,6 +50,9 @@ jobs:
     - name: 💾 Commit and Push M3U File
       uses: stefanzweifel/git-auto-commit-action@v5
       with:
-        commit_message: "🤖 Update M3U Playlist (Automated Scrape)"
-        files: ngefilm.m3u
-        branch: main
+        commit_message: "🤖 Update M3U Playlist: ngefilm.m3u (Automated Scrape)"
+        files: ngefilm.m3u # File output yang dibuat oleh ngefil.py
+        branch: main 
+        # Pengaturan untuk penulis commit
+        commit_user_name: GitHub Actions Bot
+        commit_user_email: actions@github.com
