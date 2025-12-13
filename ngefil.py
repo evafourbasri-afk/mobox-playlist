@@ -9,13 +9,13 @@ import os
 BASE_URL = "https://new29.ngefilm.site" 
 ref = "https://new29.ngefilm.site" 
 
-# LIST BARU: Menambahkan domain player yang ditemukan di HTML
+# LIST BARU: Menambahkan domain player yang ditemukan sebelumnya di HTML situs
 UNIVERSAL_DOMAINS = [
-    'playerngefilm21.rpmlive.online', # Domain player utama yang ditemukan di HTML
+    'playerngefilm21.rpmlive.online', 
     'rpmlive.online', 
-    'filepress.cloud', 
+    'filepress.cloud', # Ditemukan di link download, mungkin relevan
     'telegra.ph', 
-    'server-x7.xyz' # Domain iklan yang mungkin berhubungan dengan player
+    'server-x7.xyz'
 ] 
 # ---------------------------------------------------
 
@@ -29,7 +29,6 @@ def get_items():
     all_results = []
     seen = set()
     
-    # Batasi iterasi halaman (Misal: hanya halaman 8 hingga 9)
     for page in range(8, 10): 
         if len(all_results) >= 20:
             break
@@ -106,7 +105,6 @@ async def process_item(item):
     
     async with async_playwright() as p:
         try:
-            # Menggunakan p.chromium.launch() yang stabil
             browser = await p.chromium.launch(
                 executable_path="/usr/bin/google-chrome",
                 headless=True,
