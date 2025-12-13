@@ -4,13 +4,12 @@ from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 from pathlib import Path
 import os
-# import ast # Tidak diperlukan lagi karena parsing file dihilangkan
 
 # --- KONFIGURASI DISEMATKAN LANGSUNG (HARDCODED) ---
 BASE_URL = "https://new29.ngefilm.site"
 ref = "https://new29.ngefilm.site"
-# Daftar domain streaming. Sesuaikan jika player di situs berubah.
-UNIVERSAL_DOMAINS = ['cdnplayer.net', 'streamgud.xyz', 'vidcloud.tv', 'gostrem.net']
+# Daftar domain streaming.
+UNIVERSAL_DOMAINS = ['cdnplayer.net', 'streamgud.xyz', 'vidcloud.tv', 'gostrem.net'] 
 # ---------------------------------------------------
 
 OUTPUT_FILE = Path("ngefilm.m3u")
@@ -22,13 +21,17 @@ os.makedirs(USER_DATA_IFRAME, exist_ok=True)
 INDEX_URL = f"{BASE_URL}/page/"
 
 def get_items():
-    """Mengambil daftar film dari halaman indeks situs."""
+    """Mengambil daftar film, DIBATASI HANYA 20 FILM PERTAMA UNTUK UJI COBA."""
     headers = {"User-Agent": "Mozilla/5.0"}
     all_results = []
     seen = set()
     
-    # Mengambil dari halaman 8 hingga 14
-    for page in range(8, 15):
+    # Batasi iterasi halaman (Misal: hanya halaman 8 dan 9)
+    # Ini membantu mendapatkan 20 film lebih cepat tanpa harus loop ke halaman 15.
+    for page in range(8, 10): 
+        if len(all_results) >= 20:
+            break
+            
         url = (
             f"{INDEX_URL}{page}/"
             "?s=&search=advanced&post_type=&index=&orderby=&genre="
@@ -43,7 +46,11 @@ def get_items():
 
         soup = BeautifulSoup(r.text, "html.parser")
         articles = soup.select("div#gmr-main-load article")
+        
         for art in articles:
+            if len(all_results) >= 20:
+                break
+                
             a = art.select_one("h2.entry-title a")
             if not a:
                 continue
@@ -55,16 +62,23 @@ def get_items():
             title = a.get_text(strip=True)
             img = art.select_one("img")
             poster = img["src"] if img else ""
+            
             all_results.append({
                 "title": title,
                 "slug": slug,
                 "poster": poster,
                 "detail": detail
             })
+            
         print("➕ Total sementara:", len(all_results))
 
-    print("\n🎉 TOTAL FINAL:", len(all_results), "\n")
-    return all_results
+    # Pastikan hasil yang dikembalikan hanya 20 item (atau kurang)
+    final_results = all_results[:20]
+
+    print(f"\n🎉 TOTAL FINAL (Dibatasi untuk Uji Coba): {len(final_results)} film\n")
+    return final_results
+
+# ... (Sisa fungsi print_m3u, process_item, dan main tetap SAMA) ...
 
 def print_m3u(item, m3u8, out):
     """Menulis entri film ke dalam format M3U."""
@@ -80,8 +94,6 @@ async def process_item(item):
     slug = item["slug"]
     async with async_playwright() as p:
         browser = await p.chromium.launch(
-            # Catatan: '/usr/bin/google-chrome' mungkin perlu disesuaikan 
-            # jika Anda menjalankannya di lingkungan selain Linux/server
             executable_path="/usr/bin/google-chrome", 
             headless=True,
             args=[
@@ -129,13 +141,11 @@ async def process_item(item):
         async def intercept(route, request):
             nonlocal found
             url = request.url
-            # Filter permintaan yang tidak relevan
             is_fake = url.endswith(".txt") or url.endswith(".woff") or url.endswith(".woff2")
             if ".m3u8" in url and not is_fake:
                 if found is None:
                     found = url
                     print("🔥 STREAM:", url)
-                # Lanjutkan request dengan header yang benar
                 return await route.continue_(headers={"referer": iframe, "user-agent": "Mozilla/5.0"})
             return await route.continue_()
 
