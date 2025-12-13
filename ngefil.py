@@ -4,9 +4,14 @@ from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 from pathlib import Path
 import os
-import ast  # untuk parsing list dari file
+# import ast # Tidak diperlukan lagi karena parsing file dihilangkan
 
-CONFIG_FILE = Path.home() / "steramest2data_file.txt"
+# --- KONFIGURASI DISEMATKAN LANGSUNG (HARDCODED) ---
+BASE_URL = "https://new29.ngefilm.site"
+ref = "https://new29.ngefilm.site"
+# Daftar domain streaming. Sesuaikan jika player di situs berubah.
+UNIVERSAL_DOMAINS = ['cdnplayer.net', 'streamgud.xyz', 'vidcloud.tv', 'gostrem.net']
+# ---------------------------------------------------
 
 OUTPUT_FILE = Path("ngefilm.m3u")
 USER_DATA = "/tmp/ngefilm_profile"
@@ -14,29 +19,15 @@ USER_DATA_IFRAME = "/tmp/ngefilm_iframe_profile"
 os.makedirs(USER_DATA, exist_ok=True)
 os.makedirs(USER_DATA_IFRAME, exist_ok=True)
 
-# --- load config dari file ---
-config = {}
-with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-    for line in f:
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            key, val = line.split("=", 1)
-            key = key.strip()
-            val = val.strip().strip('"').strip("'")
-            # Parse list jika key adalah UNIVERSAL_DOMAINS
-            if key == "UNIVERSAL_DOMAINS":
-                val = ast.literal_eval(val)
-            config[key] = val
-
-BASE_URL = config["BASE_URL"]
-UNIVERSAL_DOMAINS = config["UNIVERSAL_DOMAINS"]
 INDEX_URL = f"{BASE_URL}/page/"
-ref = config["ref"]
 
 def get_items():
+    """Mengambil daftar film dari halaman indeks situs."""
     headers = {"User-Agent": "Mozilla/5.0"}
     all_results = []
     seen = set()
+    
+    # Mengambil dari halaman 8 hingga 14
     for page in range(8, 15):
         url = (
             f"{INDEX_URL}{page}/"
@@ -76,6 +67,7 @@ def get_items():
     return all_results
 
 def print_m3u(item, m3u8, out):
+    """Menulis entri film ke dalam format M3U."""
     title = item["title"]
     poster = item["poster"]
     out.write(f'#EXTINF:-1 tvg-logo="{poster}" group-title="MOVIES FILM INDONESIA",{title}\n')
@@ -84,10 +76,13 @@ def print_m3u(item, m3u8, out):
     out.write(f"{m3u8}\n\n")
 
 async def process_item(item):
+    """Menggunakan Playwright untuk menemukan tautan m3u8 dari iframe."""
     slug = item["slug"]
     async with async_playwright() as p:
         browser = await p.chromium.launch(
-            executable_path="/usr/bin/google-chrome",
+            # Catatan: '/usr/bin/google-chrome' mungkin perlu disesuaikan 
+            # jika Anda menjalankannya di lingkungan selain Linux/server
+            executable_path="/usr/bin/google-chrome", 
             headless=True,
             args=[
                 f"--user-data-dir={USER_DATA_IFRAME}",
@@ -129,16 +124,18 @@ async def process_item(item):
             await browser.close()
             return (item, None)
 
-        # Extract m3u8
+        # Extract m3u8 melalui network interception
         found = None
         async def intercept(route, request):
             nonlocal found
             url = request.url
+            # Filter permintaan yang tidak relevan
             is_fake = url.endswith(".txt") or url.endswith(".woff") or url.endswith(".woff2")
-            if ".m3u8" in url or is_fake:
+            if ".m3u8" in url and not is_fake:
                 if found is None:
                     found = url
                     print("🔥 STREAM:", url)
+                # Lanjutkan request dengan header yang benar
                 return await route.continue_(headers={"referer": iframe, "user-agent": "Mozilla/5.0"})
             return await route.continue_()
 
@@ -149,6 +146,7 @@ async def process_item(item):
         except:
             pass
 
+        # Tunggu hingga m3u8 ditemukan (maksimal 15 detik)
         for _ in range(15):
             if found:
                 break
@@ -158,24 +156,31 @@ async def process_item(item):
         return (item, found)
 
 async def main():
+    """Fungsi utama untuk menjalankan scraper."""
     items = get_items()
     if not items:
         return
 
-    # Batasi concurrency agar tidak overload
+    # Batasi concurrency (operasi Playwright simultan)
     sem = asyncio.Semaphore(5)
     async def sem_task(item):
         async with sem:
             return await process_item(item)
 
     tasks = [sem_task(item) for item in items]
+    
+    # Jalankan semua tugas secara paralel
     results = await asyncio.gather(*tasks)
 
+    # Menulis hasil ke file M3U
     with OUTPUT_FILE.open("w", encoding="utf-8") as f:
         f.write("#EXTM3U\n\n")
         for item, m3u8 in results:
             if m3u8:
-                print(f"🔥 STREAM={m3u8} ({item['slug']})")
+                print(f"✅ FOUND STREAM={m3u8} ({item['slug']})")
                 print_m3u(item, m3u8, f)
+            else:
+                print(f"❌ NOT FOUND STREAM ({item['slug']})")
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
