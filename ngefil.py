@@ -6,9 +6,9 @@ from pathlib import Path
 import os
 
 # --- KONFIGURASI DISEMATKAN LANGSUNG (HARDCODED) ---
-BASE_URL = "https://www.ngefilm21.pw"
-ref = "https://www.ngefilm21.pw"
-# Daftar domain streaming. Pastikan ini sesuai dengan player yang digunakan situs tersebut.
+BASE_URL = "https://new29.ngefilm.site" # <--- DIKEMBALIKAN KE DOMAIN INI
+ref = "https://new29.ngefilm.site" # <--- DIKEMBALIKAN KE DOMAIN INI
+# Daftar domain streaming.
 UNIVERSAL_DOMAINS = ['cdnplayer.net', 'streamgud.xyz', 'vidcloud.tv', 'gostrem.net'] 
 # ---------------------------------------------------
 
