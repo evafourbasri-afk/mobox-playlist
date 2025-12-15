@@ -4,7 +4,6 @@ import json, sys, time, os
 # =========================
 # KONFIGURASI INPUT
 # =========================
-# Menggunakan URL embed video sebagai default jika tidak ada argumen.
 FILM_URL = sys.argv[1] if len(sys.argv) > 1 else \
     "https://cloud.hownetwork.xyz/video.php?id=lhe9oikcwiavnbsljh01mcmkkc0xhavsmdaeim4czmp3vqsimcswob0jkh96bgzqe096" 
 
@@ -22,7 +21,7 @@ BLOCKED_KEYWORDS = [
 ]
 
 ALLOWED_HINTS = [
-    "cloud.hownetwork.xyz", 
+    "cloud.hownetwork.xyz",
     ".m3u8",                
     ".mpd",                 
     ".ts",                  
@@ -75,6 +74,10 @@ def sniff(response):
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     
+    print("==============================================")
+    print(f"TARGET URL: {FILM_URL}")
+    print("==============================================")
+    
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
@@ -85,8 +88,67 @@ def main():
             ]
         )
 
+        # BLOK KODE KRITIS (SUDAH DIKOREKSI MENJADI SATU BARIS UNTUK MENCEGAH SYNTAX ERROR)
         context = browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
+        # AKHIR BLOK KRITIS
+
+        page = context.new_page()
+        page.on("response", sniff)
+
+        print(f"[OPEN] {FILM_URL}")
+        page.goto(FILM_URL, wait_until="domcontentloaded", timeout=60000)
+
+        # =========================
+        # TRIGGER PLAYER
+        # =========================
+        time.sleep(5) 
+
+        try:
+            print("[ACTION] Mencoba Klik di tengah layar (400, 300) untuk Play")
+            page.mouse.click(400, 300)
+            time.sleep(5)
+            
+            print("[ACTION] Klik kedua (untuk menutup pop-up/lanjutkan play)")
+            page.mouse.click(400, 300) 
+            time.sleep(5)
+
+        except Exception as e:
+            print(f"[ERROR] Gagal melakukan simulasi klik: {e}")
+            pass
+
+        print("[ACTION] Menunggu request jaringan selesai (Total 10 detik)...")
+        page.wait_for_timeout(10000)
+        
+        browser.close()
+
+    # =========================
+    # OUTPUT HASIL
+    # =========================
+    unique_streams = list(set(streams))
+    final_streams = [s for s in unique_streams if ".m3u8" in s or ".mpd" in s or ".mp4" in s]
+    
+    if not final_streams and unique_streams:
+        final_streams = unique_streams
+    
+    result = {
+        "source": FILM_URL,
+        "count": len(final_streams),
+        "streams": final_streams,
+        "status": "ok" if final_streams else "no_stream_found"
+    }
+
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2)
+
+    print("\n=== RESULT ===")
+    print(json.dumps(result, indent=2))
+    
+    if final_streams:
+        print("\n::SUCCESS:: Tautan .m3u8/.mpd/.mp4 berhasil ditemukan. Siap untuk diputar di VLC/MX Player.")
+    else:
+        print("\n::FAILURE:: Tidak ada tautan streaming yang valid ditemukan.")
+
+if __name__ == "__main__":
+    main()
