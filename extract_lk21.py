@@ -2,43 +2,36 @@ from playwright.sync_api import sync_playwright
 import json, sys, time, os
 
 # =========================
-# KONFIGURASI INPUT (SUDAH DISET KE URL EMBED YANG DIBERIKAN)
+# KONFIGURASI INPUT
 # =========================
-# URL target utama adalah URL embed video yang benar
 FILM_URL = sys.argv[1] if len(sys.argv) > 1 else \
     "https://cloud.hownetwork.xyz/video.php?id=lhe9oikcwiavnbsljh01mcmkkc0xhavsmdaeim4czmp3vqsimcswob0jkh96bgzqe096" 
 
 OUTPUT_DIR = "output"
 OUTPUT_FILE = f"{OUTPUT_DIR}/streams.json"
 
-# List untuk menyimpan semua URL streaming yang valid
 streams = []
 
 # =========================
 # FILTER JARINGAN
 # =========================
-
 BLOCKED_KEYWORDS = [
     "donasi", "stopjudi", "organicowner", "doubleclick",
     "ads", "popads", "adservice", "popunder"
 ]
 
 ALLOWED_HINTS = [
-    "cloud.hownetwork.xyz", # Host yang diketahui menyajikan video
-    ".m3u8",                # Format Playlist HLS
-    ".mpd",                 # Format Playlist DASH
-    ".ts",                  # Fragmen video HLS
-    ".mp4"                  # File video langsung
+    "cloud.hownetwork.xyz",
+    ".m3u8",                
+    ".mpd",                 
+    ".ts",                  
+    ".mp4"                  
 ]
 
 # =========================
 # FUNGSI SNIFFER
 # =========================
 def sniff(response):
-    """
-    Fungsi untuk memeriksa setiap respons jaringan yang diterima,
-    mencari file streaming (.m3u8, .mpd, atau .mp4).
-    """
     url = response.url.lower()
 
     # 1. BLOKIR IKLAN
@@ -54,15 +47,13 @@ def sniff(response):
     try:
         content_type = response.headers.get("content-type", "").lower()
 
-        # Target Content-Types untuk playlist/file video utama
         is_video_content = (
-            "application/vnd.apple.mpegurl" in content_type or # Tipe .m3u8
-            "application/x-mpegurl" in content_type or         # Tipe lain .m3u8
-            "application/dash+xml" in content_type or          # Tipe .mpd (DASH)
-            "video/" in content_type                           # Tipe umum untuk video (mp4, flv, etc.)
+            "application/vnd.apple.mpegurl" in content_type or 
+            "application/x-mpegurl" in content_type or         
+            "application/dash+xml" in content_type or          
+            "video/" in content_type                           
         )
         
-        # Prioritaskan URL yang berakhiran playlist atau file
         is_preferred_url = ".m3u8" in url or ".mpd" in url or ".mp4" in url
 
         if is_video_content or is_preferred_url:
@@ -83,13 +74,11 @@ def sniff(response):
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     
-    # Verifikasi target
     print("==============================================")
     print(f"TARGET URL: {FILM_URL}")
     print("==============================================")
     
     with sync_playwright() as p:
-        # PENTING: Headless harus diaktifkan untuk lingkungan server (seperti GitHub Actions)
         browser = p.chromium.launch(
             headless=True,
             args=[
@@ -99,26 +88,22 @@ def main():
             ]
         )
 
-        # BLOK KODE YANG MENYEBABKAN SYNTAX ERROR SUDAH DIKOREKSI DI BAWAH INI
+        # BLOK KODE KRITIS (SUDAH DIKOREKSI MENJADI SATU BARIS UNTUK MENCEGAH SYNTAX ERROR)
         context = browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            )
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
+        # AKHIR BLOK KRITIS
 
         page = context.new_page()
         page.on("response", sniff)
 
         print(f"[OPEN] {FILM_URL}")
-        # Buka langsung URL embed video
         page.goto(FILM_URL, wait_until="domcontentloaded", timeout=60000)
 
         # =========================
         # TRIGGER PLAYER
         # =========================
-        time.sleep(5) # Beri waktu elemen dimuat
+        time.sleep(5) 
 
         try:
             print("[ACTION] Mencoba Klik di tengah layar (400, 300) untuk Play")
@@ -133,7 +118,6 @@ def main():
             print(f"[ERROR] Gagal melakukan simulasi klik: {e}")
             pass
 
-        # Beri waktu tambahan untuk semua request streaming dimuat
         print("[ACTION] Menunggu request jaringan selesai (Total 10 detik)...")
         page.wait_for_timeout(10000)
         
