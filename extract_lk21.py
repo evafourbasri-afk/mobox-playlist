@@ -2,14 +2,11 @@ from playwright.sync_api import sync_playwright
 import json, sys, time, os
 
 # =========================
-# KONFIGURASI INPUT (HARUS DIGANTI DENGAN URL IFRAME VIDEO YANG ASLI!)
+# KONFIGURASI INPUT (SUDAH DISET KE URL EMBED YANG DIBERIKAN)
 # =========================
-# GANTI INI: Gunakan URL dari cloud.hownetwork.xyz atau embed video, bukan halaman film utamanya.
-# Contoh:
-# FILM_URL = "https://cloud.hownetwork.xyz/video.php?id=lhe9oikcwiavnbsljh01mcmkkc0xhavsmdaeim4czmp3vqsimcswob0jkh96bgzqe096"
-# (Jika Anda menjalankannya tanpa argumen baris perintah)
+# URL ini adalah target utama skrip (URL embed video)
 FILM_URL = sys.argv[1] if len(sys.argv) > 1 else \
-    "MASUKKAN URL IFRAME VIDEO DI SINI" 
+    "https://cloud.hownetwork.xyz/video.php?id=lhe9oikcwiavnbsljh01mcmkkc0xhavsmdaeim4czmp3vqsimcswob0jkh96bgzqe096" 
 
 OUTPUT_DIR = "output"
 OUTPUT_FILE = f"{OUTPUT_DIR}/streams.json"
@@ -75,6 +72,7 @@ def sniff(response):
                 if is_preferred_url:
                     print(f"[FILM STREAM FOUND (Playlist/File)] {url}")
                 else:
+                    # Ini mungkin file .ts atau fragmen lain
                     print(f"[FILM STREAM FOUND (Fragmen/Umum)] {url}")
                     
                 streams.append(url)
@@ -86,11 +84,6 @@ def sniff(response):
 # FUNGSI UTAMA
 # =========================
 def main():
-    if FILM_URL == "MASUKKAN URL IFRAME VIDEO DI SINI":
-        print("ERROR: Harap ganti FILM_URL dengan URL iframe video yang sebenarnya.")
-        print("Contoh: python stream_extractor.py https://cloud.hownetwork.xyz/video.php?id=...")
-        return
-
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     
     with sync_playwright() as p:
@@ -126,7 +119,7 @@ def main():
         time.sleep(5) # Beri waktu elemen dimuat
 
         try:
-            # Karena kita langsung membuka iframe, klik di tengah seharusnya memicu play
+            # Karena kita langsung membuka URL embed, klik di tengah seharusnya memicu play
             print("[ACTION] Mencoba Klik di tengah layar (400, 300) untuk Play")
             page.mouse.click(400, 300)
             time.sleep(5)
@@ -176,7 +169,7 @@ def main():
         print("Gunakan tautan pertama di VLC/MX Player melalui 'Buka Aliran Jaringan...'")
     else:
         print("\n**KEGAGALAN**")
-        print("Tidak ada tautan streaming yang valid ditemukan. Coba periksa apakah URL embed yang Anda masukkan sudah benar.")
+        print("Tidak ada tautan streaming yang valid ditemukan. Kemungkinan situs menggunakan token keamanan yang sangat ketat.")
 
 if __name__ == "__main__":
     main()
