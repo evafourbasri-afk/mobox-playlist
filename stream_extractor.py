@@ -1,35 +1,34 @@
 from playwright.sync_api import sync_playwright
 import json, sys, time, os
+import re # Diperlukan untuk regex
 
 # =========================
 # KONFIGURASI INPUT
 # =========================
-# URL embed video yang menjadi target utama
+# TARGET UTAMA SEKARANG ADALAH HALAMAN FILM INDUK
 FILM_URL = sys.argv[1] if len(sys.argv) > 1 else \
-    "https://cloud.hownetwork.xyz/video.php?id=lhe9oikcwiavnbsljh01mcmkkc0xhavsmdaeim4czmp3vqsimcswob0jkh96bgzqe096" 
+    "https://tv7.lk21official.cc/little-amelie-character-rain-2025"
 
 OUTPUT_DIR = "output"
 OUTPUT_FILE = f"{OUTPUT_DIR}/streams.json"
 
-# URL halaman utama film yang akan disuntikkan sebagai Referer (Penting untuk mengatasi redirect)
-REFERER_URL = "https://tv7.lk21official.cc/little-amelie-character-rain-2025"
-
-# User-Agent yang sama dengan yang dikonfigurasi di browser context
-DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+# URL yang kita harapkan ada di dalam iframe src
+IFRAME_HINT = "cloud.hownetwork.xyz"
 
 streams = []
+extracted_iframe_url = None # Untuk menyimpan URL embed yang ditemukan
 
 # =========================
 # FILTER JARINGAN
 # =========================
-
+# (Filter tetap sama, tetapi sekarang akan diterapkan setelah navigasi ke iframe)
 BLOCKED_KEYWORDS = [
     "donasi", "stopjudi", "organicowner", "doubleclick",
     "ads", "popads", "adservice", "popunder"
 ]
 
 ALLOWED_HINTS = [
-    "cloud.hownetwork.xyz", 
+    IFRAME_HINT,
     ".m3u8",                
     ".mpd",                 
     ".ts",                  
@@ -42,16 +41,13 @@ ALLOWED_HINTS = [
 def sniff(response):
     url = response.url.lower()
 
-    # 1. BLOKIR IKLAN
     for b in BLOCKED_KEYWORDS:
         if b in url:
             return
 
-    # 2. FILTER BERDASARKAN URL
     if not any(h in url for h in ALLOWED_HINTS):
         return
 
-    # 3. FILTER BERDASARKAN CONTENT-TYPE
     try:
         content_type = response.headers.get("content-type", "").lower()
 
@@ -80,11 +76,11 @@ def sniff(response):
 # FUNGSI UTAMA
 # =========================
 def main():
+    global extracted_iframe_url
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     
     print("==============================================")
-    print(f"TARGET URL: {FILM_URL}")
-    print(f"REFERER URL: {REFERER_URL}")
+    print(f"TARGET UTAMA (HALAMAN FILM): {FILM_URL}")
     print("==============================================")
     
     with sync_playwright() as p:
@@ -98,46 +94,65 @@ def main():
         )
 
         context = browser.new_context(
-            user_agent=DEFAULT_USER_AGENT
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
 
         page = context.new_page()
         page.on("response", sniff)
 
-        # Aksi Kritis: Menetapkan Referer dan User-Agent sebagai Extra HTTP Headers
-        # Ini memastikan header dikirim dengan benar, mengatasi ERR_TOO_MANY_REDIRECTS
-        page.set_extra_http_headers({
-            "Referer": REFERER_URL,
-            "User-Agent": DEFAULT_USER_AGENT
-        })
-        
-        print(f"[ACTION] Navigasi ke {FILM_URL} dengan Extra Headers...")
-        
-        # page.goto TANPA argumen 'referer' karena sudah diatur di page.set_extra_http_headers
-        page.goto(
-            FILM_URL,
-            wait_until="domcontentloaded",
-            timeout=60000
-        )
+        print(f"[ACTION] Membuka Halaman Film Induk: {FILM_URL}")
+        page.goto(FILM_URL, wait_until="domcontentloaded", timeout=60000)
 
         # =========================
-        # TRIGGER PLAYER
+        # 1. TEMUKAN IFRAME DAN AMBIL URL-NYA
         # =========================
-        time.sleep(5) 
-
         try:
-            print("[ACTION] Mencoba Klik di tengah layar (400, 300) untuk Play")
-            page.mouse.click(400, 300)
-            time.sleep(5)
+            print("[ACTION] Mencari iframe embed video...")
+            # Coba temukan iframe berdasarkan URL hint atau selector yang mungkin
+            iframe_selector = f'iframe[src*="{IFRAME_HINT}"]'
+            iframe_element = page.wait_for_selector(iframe_selector, timeout=15000)
             
-            print("[ACTION] Klik kedua (untuk menutup pop-up/lanjutkan play)")
-            page.mouse.click(400, 300) 
-            time.sleep(5)
+            if iframe_element:
+                extracted_iframe_url = iframe_element.get_attribute('src')
+                print(f"[SUCCESS] Iframe ditemukan: {extracted_iframe_url}")
+                
+            else:
+                 print("[FAILURE] Iframe tidak ditemukan dalam 15 detik.")
+                 browser.close()
+                 return # Keluar dari main jika iframe tidak ditemukan
 
         except Exception as e:
-            print(f"[ERROR] Gagal melakukan simulasi klik: {e}")
-            pass
+            print(f"[ERROR] Gagal menemukan iframe: {e}")
+            browser.close()
+            return
+            
+        # =========================
+        # 2. NAVIGASI KE IFRAME YANG DITEMUKAN
+        # =========================
+        if extracted_iframe_url:
+            print(f"[ACTION] Menavigasi ke URL Iframe yang diekstrak...")
+            # Kita tidak perlu set referer di sini karena Playwright akan melakukannya secara otomatis
+            # dan URL ini mungkin sudah berisi token sesi yang valid.
+            page.goto(extracted_iframe_url, wait_until="domcontentloaded", timeout=60000)
+            
+            # =========================
+            # 3. TRIGGER PLAYER DI DALAM IFRAME
+            # =========================
+            time.sleep(5) 
 
+            try:
+                print("[ACTION] Mencoba Klik di tengah iframe (400, 300) untuk Play...")
+                page.mouse.click(400, 300)
+                time.sleep(5)
+                
+                print("[ACTION] Klik kedua untuk memastikan pemutaran.")
+                page.mouse.click(400, 300) 
+                time.sleep(5)
+
+            except Exception as e:
+                print(f"[ERROR] Gagal melakukan simulasi klik di iframe: {e}")
+                pass
+                
         print("[ACTION] Menunggu request jaringan selesai (Total 10 detik)...")
         page.wait_for_timeout(10000)
         
@@ -153,7 +168,7 @@ def main():
         final_streams = unique_streams
     
     result = {
-        "source": FILM_URL,
+        "source": extracted_iframe_url if extracted_iframe_url else FILM_URL,
         "count": len(final_streams),
         "streams": final_streams,
         "status": "ok" if final_streams else "no_stream_found"
@@ -168,7 +183,7 @@ def main():
     if final_streams:
         print("\n::SUCCESS:: Tautan .m3u8/.mpd/.mp4 berhasil ditemukan. Siap untuk diputar di VLC/MX Player.")
     else:
-        print("\n::FAILURE:: Tidak ada tautan streaming yang valid ditemukan. Ini mungkin menunjukkan bahwa situs memerlukan token sesi atau JavaScript lanjutan.")
+        print("\n::FAILURE:: Tidak ada tautan streaming yang valid ditemukan.")
 
 if __name__ == "__main__":
     main()
