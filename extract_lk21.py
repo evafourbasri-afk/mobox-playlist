@@ -1,12 +1,15 @@
 from playwright.sync_api import sync_playwright
-import json, sys, time
+import json, sys, time, os
 
 FILM_URL = sys.argv[1] if len(sys.argv) > 1 else \
     "https://tv7.lk21official.cc/little-amelie-character-rain-2025"
 
-OUTPUT_FILE = "output/streams.json"
+OUTPUT_DIR = "output"
+OUTPUT_FILE = f"{OUTPUT_DIR}/streams.json"
 
 def main():
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
     streams = []
 
     with sync_playwright() as p:
@@ -27,9 +30,9 @@ def main():
 
         def sniff(response):
             url = response.url.lower()
-            if any(x in url for x in [".m3u8", ".mp4"]):
+            if ".m3u8" in url or ".mp4" in url:
                 if url not in streams:
-                    print("[STREAM FOUND]", url)
+                    print("[FOUND]", url)
                     streams.append(url)
 
         page.on("response", sniff)
@@ -37,13 +40,31 @@ def main():
         print("[OPEN]", FILM_URL)
         page.goto(FILM_URL, wait_until="domcontentloaded")
 
-        time.sleep(10)
+        time.sleep(8)
 
         try:
-            page.mouse.click(300, 300)
+            page.mouse.click(400, 300)
             time.sleep(5)
         except:
             pass
 
-        page.wait_for_timeout(10000)
-        browser.close
+        page.wait_for_timeout(12000)
+        browser.close()
+
+    # ⬇️ WAJIB TULIS FILE WALAU KOSONG
+    result = {
+        "source": FILM_URL,
+        "count": len(streams),
+        "streams": streams,
+        "status": "ok" if streams else "no_stream_found"
+    }
+
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2)
+
+    print("\n=== SAVED ===")
+    print(json.dumps(result, indent=2))
+
+
+if __name__ == "__main__":
+    main()
