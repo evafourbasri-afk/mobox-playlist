@@ -1,0 +1,43 @@
+name: LK21 Extractor
+
+on:
+  workflow_dispatch:
+    inputs:
+      film_url:
+        description: "LK21 movie URL"
+        required: true
+        default: "https://tv7.lk21official.cc/little-amelie-character-rain-2025"
+
+  schedule:
+    - cron: "0 */6 * * *"
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Playwright
+        run: |
+          pip install playwright
+          playwright install chromium
+
+      - name: Run extractor
+        run: |
+          mkdir -p output
+          python extract_lk21.py "${{ github.event.inputs.film_url }}"
+
+      - name: Commit result
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add output/streams.json
+          git commit -m "Update LK21 streams" || echo "No changes"
+          git push
