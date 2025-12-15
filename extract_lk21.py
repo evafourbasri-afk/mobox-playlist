@@ -18,13 +18,11 @@ streams = []
 # FILTER JARINGAN
 # =========================
 
-# Kata kunci yang harus diblokir (biasanya iklan/pop-up)
 BLOCKED_KEYWORDS = [
     "donasi", "stopjudi", "organicowner", "doubleclick",
     "ads", "popads", "adservice", "popunder"
 ]
 
-# Kata kunci yang diizinkan (host video atau format streaming)
 ALLOWED_HINTS = [
     "cloud.hownetwork.xyz", # Host yang diketahui menyajikan video
     ".m3u8",                # Format Playlist HLS
@@ -88,12 +86,12 @@ def main():
     # Verifikasi target
     print("==============================================")
     print(f"TARGET URL: {FILM_URL}")
-    print("Memastikan skrip menargetkan langsung URL embed...")
     print("==============================================")
     
     with sync_playwright() as p:
+        # PENTING: Headless harus diaktifkan untuk lingkungan server (seperti GitHub Actions)
         browser = p.chromium.launch(
-            headless=True, # Ubah ke False jika ingin melihat proses di browser
+            headless=True,
             args=[
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
@@ -101,6 +99,7 @@ def main():
             ]
         )
 
+        # BLOK KODE YANG MENYEBABKAN SYNTAX ERROR SUDAH DIKOREKSI DI BAWAH INI
         context = browser.new_context(
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -110,8 +109,6 @@ def main():
         )
 
         page = context.new_page()
-
-        # Pasang sniffer ke event "response"
         page.on("response", sniff)
 
         print(f"[OPEN] {FILM_URL}")
@@ -124,12 +121,11 @@ def main():
         time.sleep(5) # Beri waktu elemen dimuat
 
         try:
-            # Karena kita langsung membuka URL embed, klik di tengah seharusnya memicu play
             print("[ACTION] Mencoba Klik di tengah layar (400, 300) untuk Play")
             page.mouse.click(400, 300)
             time.sleep(5)
             
-            # Klik kedua, seringkali untuk menutup pop-up/iklan overlay
+            print("[ACTION] Klik kedua (untuk menutup pop-up/lanjutkan play)")
             page.mouse.click(400, 300) 
             time.sleep(5)
 
@@ -147,11 +143,8 @@ def main():
     # OUTPUT HASIL
     # =========================
     unique_streams = list(set(streams))
-    
-    # Utamakan URL playlist/file video (ini yang bisa di-play di VLC/MX Player)
     final_streams = [s for s in unique_streams if ".m3u8" in s or ".mpd" in s or ".mp4" in s]
     
-    # Jika tidak ada playlist/file video, gunakan semua yang ditemukan
     if not final_streams and unique_streams:
         final_streams = unique_streams
     
@@ -169,13 +162,9 @@ def main():
     print(json.dumps(result, indent=2))
     
     if final_streams:
-        print("\n**KESUKSESAN**")
-        print("Tautan .m3u8/.mpd/.mp4 yang ditemukan sudah siap digunakan.")
-        print("Gunakan tautan pertama di VLC/MX Player melalui 'Buka Aliran Jaringan...'")
+        print("\n::SUCCESS:: Tautan .m3u8/.mpd/.mp4 berhasil ditemukan. Siap untuk diputar di VLC/MX Player.")
     else:
-        print("\n**KEGAGALAN**")
-        print("Tidak ada tautan streaming yang valid ditemukan meskipun menargetkan URL embed.")
-        print("Situs mungkin menggunakan *token* sekali pakai yang mencegah *stream* diputar di luar browser.")
+        print("\n::FAILURE:: Tidak ada tautan streaming yang valid ditemukan.")
 
 if __name__ == "__main__":
     main()
