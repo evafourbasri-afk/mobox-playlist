@@ -1,13 +1,13 @@
 from playwright.sync_api import sync_playwright
 import json, sys, time, os
-import re # Diperlukan untuk regex
+import re 
 
 # =========================
 # KONFIGURASI INPUT
 # =========================
-# TARGET UTAMA SEKARANG ADALAH HALAMAN FILM INDUK
+# PENTING: TARGET UTAMA ADALAH HALAMAN FILM INDUK (Bukan URL embed)
 FILM_URL = sys.argv[1] if len(sys.argv) > 1 else \
-    "https://tv7.lk21official.cc/little-amelie-character-rain-2025"
+    "https://tv7.lk21official.cc/little-amelie-character-rain-2025" 
 
 OUTPUT_DIR = "output"
 OUTPUT_FILE = f"{OUTPUT_DIR}/streams.json"
@@ -16,12 +16,11 @@ OUTPUT_FILE = f"{OUTPUT_DIR}/streams.json"
 IFRAME_HINT = "cloud.hownetwork.xyz"
 
 streams = []
-extracted_iframe_url = None # Untuk menyimpan URL embed yang ditemukan
+extracted_iframe_url = None 
 
 # =========================
 # FILTER JARINGAN
 # =========================
-# (Filter tetap sama, tetapi sekarang akan diterapkan setelah navigasi ke iframe)
 BLOCKED_KEYWORDS = [
     "donasi", "stopjudi", "organicowner", "doubleclick",
     "ads", "popads", "adservice", "popunder"
@@ -101,14 +100,14 @@ def main():
         page.on("response", sniff)
 
         print(f"[ACTION] Membuka Halaman Film Induk: {FILM_URL}")
-        page.goto(FILM_URL, wait_until="domcontentloaded", timeout=60000)
+        page.goto(FILM_URL, wait_until="domcontentloaded", timeout=60000) # Memuat halaman utama
 
         # =========================
         # 1. TEMUKAN IFRAME DAN AMBIL URL-NYA
         # =========================
         try:
             print("[ACTION] Mencari iframe embed video...")
-            # Coba temukan iframe berdasarkan URL hint atau selector yang mungkin
+            # Menunggu iframe dengan src yang mengandung hint
             iframe_selector = f'iframe[src*="{IFRAME_HINT}"]'
             iframe_element = page.wait_for_selector(iframe_selector, timeout=15000)
             
@@ -119,7 +118,7 @@ def main():
             else:
                  print("[FAILURE] Iframe tidak ditemukan dalam 15 detik.")
                  browser.close()
-                 return # Keluar dari main jika iframe tidak ditemukan
+                 return 
 
         except Exception as e:
             print(f"[ERROR] Gagal menemukan iframe: {e}")
@@ -131,8 +130,7 @@ def main():
         # =========================
         if extracted_iframe_url:
             print(f"[ACTION] Menavigasi ke URL Iframe yang diekstrak...")
-            # Kita tidak perlu set referer di sini karena Playwright akan melakukannya secara otomatis
-            # dan URL ini mungkin sudah berisi token sesi yang valid.
+            # Playwright akan menggunakan Referer yang benar (halaman induk)
             page.goto(extracted_iframe_url, wait_until="domcontentloaded", timeout=60000)
             
             # =========================
