@@ -1,0 +1,56 @@
+name: Stream Extractor Runner
+
+on:
+  # Anda dapat memicu workflow ini secara manual dari GitHub UI
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'URL Embed Video yang Akan Diekstrak (e.g., cloud.hownetwork.xyz/...)'
+        required: true
+        default: 'https://cloud.hownetwork.xyz/video.php?id=lhe9oikcwiavnbsljh01mcmkkc0xhavsmdaeim4czmp3vqsimcswob0jkh96bgzqe096'
+
+jobs:
+  extract_stream:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    # Langkah 1: Setup Python
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    # Langkah 2: Instal dependensi Python
+    - name: Install Python dependencies
+      run: |
+        pip install playwright
+
+    # Langkah 3: Instal browser Chromium untuk Playwright (Wajib)
+    - name: Install Playwright Browsers
+      run: |
+        playwright install chromium
+        
+    # Langkah 4: Jalankan Skrip Ekstraksi
+    - name: Run Stream Extractor
+      run: |
+        # Menggunakan input URL dari workflow_dispatch.
+        # Jika input tidak diberikan, ia akan menggunakan default yang ada di dalam skrip Python.
+        python stream_extractor.py "${{ github.event.inputs.video_url }}"
+        
+    # Langkah 5: Tampilkan dan Simpan Hasil (File streams.json)
+    - name: Display and Save Result
+      run: |
+        echo "--- HASIL EKSTRAKSI ---"
+        cat output/streams.json
+        echo "----------------------"
+        
+    # Opsional: Jika Anda ingin menyimpan file hasil sebagai artefak di Actions
+    - name: Upload Stream Result Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: extracted-streams
+        path: output/streams.json
+
