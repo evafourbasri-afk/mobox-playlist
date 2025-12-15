@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       film_url:
-        description: "LK21 movie URL"
+        description: "URL film LK21"
         required: true
         default: "https://tv7.lk21official.cc/little-amelie-character-rain-2025"
 
@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -26,18 +26,28 @@ jobs:
 
       - name: Install Playwright
         run: |
+          pip install --upgrade pip
           pip install playwright
           playwright install chromium
 
-      - name: Run extractor
+      - name: Run LK21 extractor
         run: |
           mkdir -p output
           python extract_lk21.py "${{ github.event.inputs.film_url }}"
+
+      - name: Show result (debug)
+        run: |
+          echo "===== OUTPUT FILE ====="
+          ls -lah output || true
+          cat output/streams.json || true
 
       - name: Commit result
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add output/streams.json
-          git commit -m "Update LK21 streams" || echo "No changes"
-          git push
+
+          git status
+
+          git add output/streams.json || true
+          git commit -m "Update LK21 streams" || echo "Nothing to commit"
+          git push || echo "Nothing to push"
