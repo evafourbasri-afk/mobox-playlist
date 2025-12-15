@@ -4,24 +4,29 @@ import json, sys, time, os
 # =========================
 # KONFIGURASI INPUT
 # =========================
+# URL embed video yang menjadi target utama
 FILM_URL = sys.argv[1] if len(sys.argv) > 1 else \
     "https://cloud.hownetwork.xyz/video.php?id=lhe9oikcwiavnbsljh01mcmkkc0xhavsmdaeim4czmp3vqsimcswob0jkh96bgzqe096" 
 
 OUTPUT_DIR = "output"
 OUTPUT_FILE = f"{OUTPUT_DIR}/streams.json"
 
+# URL halaman utama film yang akan disuntikkan sebagai Referer
+REFERER_URL = "https://tv7.lk21official.cc/little-amelie-character-rain-2025"
+
 streams = []
 
 # =========================
 # FILTER JARINGAN
 # =========================
+
 BLOCKED_KEYWORDS = [
     "donasi", "stopjudi", "organicowner", "doubleclick",
     "ads", "popads", "adservice", "popunder"
 ]
 
 ALLOWED_HINTS = [
-    "cloud.hownetwork.xyz",
+    "cloud.hownetwork.xyz", 
     ".m3u8",                
     ".mpd",                 
     ".ts",                  
@@ -76,6 +81,7 @@ def main():
     
     print("==============================================")
     print(f"TARGET URL: {FILM_URL}")
+    print(f"REFERER URL: {REFERER_URL}")
     print("==============================================")
     
     with sync_playwright() as p:
@@ -88,17 +94,21 @@ def main():
             ]
         )
 
-        # BLOK KODE KRITIS (SUDAH DIKOREKSI MENJADI SATU BARIS UNTUK MENCEGAH SYNTAX ERROR)
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
-        # AKHIR BLOK KRITIS
 
         page = context.new_page()
         page.on("response", sniff)
 
-        print(f"[OPEN] {FILM_URL}")
-        page.goto(FILM_URL, wait_until="domcontentloaded", timeout=60000)
+        print(f"[ACTION] Navigasi ke {FILM_URL} dengan Referer...")
+        # Aksi Kritis: Menambahkan referer=REFERER_URL
+        page.goto(
+            FILM_URL,
+            wait_until="domcontentloaded",
+            timeout=60000,
+            referer=REFERER_URL
+        )
 
         # =========================
         # TRIGGER PLAYER
@@ -148,7 +158,7 @@ def main():
     if final_streams:
         print("\n::SUCCESS:: Tautan .m3u8/.mpd/.mp4 berhasil ditemukan. Siap untuk diputar di VLC/MX Player.")
     else:
-        print("\n::FAILURE:: Tidak ada tautan streaming yang valid ditemukan.")
+        print("\n::FAILURE:: Tidak ada tautan streaming yang valid ditemukan. Coba periksa apakah server embed video ini memerlukan token yang lebih kompleks.")
 
 if __name__ == "__main__":
     main()
