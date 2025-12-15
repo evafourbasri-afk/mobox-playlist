@@ -1,71 +1,61 @@
 from playwright.sync_api import sync_playwright
 import json, sys, time, os
-import re 
 
 # =========================
 # KONFIGURASI INPUT
 # =========================
-# PENTING: TARGET UTAMA ADALAH HALAMAN FILM INDUK (Bukan URL embed)
+# Kita gunakan URL Halaman Induk sebagai default.
 FILM_URL = sys.argv[1] if len(sys.argv) > 1 else \
-    "https://tv7.lk21official.cc/little-amelie-character-rain-2025" 
+    "https://tv7.lk21official.cc/little-amelie-character-rain-2025"
 
 OUTPUT_DIR = "output"
 OUTPUT_FILE = f"{OUTPUT_DIR}/streams.json"
 
-# URL yang kita harapkan ada di dalam iframe src
-IFRAME_HINT = "cloud.hownetwork.xyz"
-
 streams = []
-extracted_iframe_url = None 
 
 # =========================
 # FILTER JARINGAN
 # =========================
 BLOCKED_KEYWORDS = [
     "donasi", "stopjudi", "organicowner", "doubleclick",
-    "ads", "popads", "adservice", "popunder"
+    "ads", "popads", "adservice", "popunder", "google"
 ]
 
 ALLOWED_HINTS = [
-    IFRAME_HINT,
-    ".m3u8",                
-    ".mpd",                 
-    ".ts",                  
-    ".mp4"                  
+    "cloud.hownetwork.xyz",
+    ".m3u8",
+    ".mpd",
+    ".ts",
+    ".mp4",
+    "video"
 ]
 
 # =========================
 # FUNGSI SNIFFER
 # =========================
 def sniff(response):
-    url = response.url.lower()
-
-    for b in BLOCKED_KEYWORDS:
-        if b in url:
-            return
-
-    if not any(h in url for h in ALLOWED_HINTS):
-        return
-
     try:
+        url = response.url.lower()
+
+        # 1. Cek Blokir
+        for b in BLOCKED_KEYWORDS:
+            if b in url:
+                return
+
+        # 2. Cek apakah ini video/playlist
+        # Kita melonggarkan filter URL agar menangkap lebih banyak potensi link
         content_type = response.headers.get("content-type", "").lower()
-
-        is_video_content = (
-            "application/vnd.apple.mpegurl" in content_type or 
-            "application/x-mpegurl" in content_type or         
-            "application/dash+xml" in content_type or          
-            "video/" in content_type                           
-        )
         
-        is_preferred_url = ".m3u8" in url or ".mpd" in url or ".mp4" in url
-
-        if is_video_content or is_preferred_url:
+        is_playlist = ".m3u8" in url or ".mpd" in url
+        is_video_mime = "application/vnd.apple.mpegurl" in content_type or "video/" in content_type
+        
+        # Logika tangkap:
+        if is_playlist or is_video_mime:
             if url not in streams:
-                if is_preferred_url:
-                    print(f"[FILM STREAM FOUND (Playlist/File)] {url}")
+                if ".m3u8" in url:
+                    print(f"[FOUND M3U8] {url}")
                 else:
-                    print(f"[FILM STREAM FOUND (Fragmen/Umum)] {url}")
-                    
+                    print(f"[FOUND MEDIA] {url}")
                 streams.append(url)
 
     except Exception:
@@ -75,23 +65,19 @@ def sniff(response):
 # FUNGSI UTAMA
 # =========================
 def main():
-    global extracted_iframe_url
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     
     print("==============================================")
-    print(f"TARGET UTAMA (HALAMAN FILM): {FILM_URL}")
+    print(f"TARGET: {FILM_URL}")
     print("==============================================")
     
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-blink-features=AutomationControlled"
-            ]
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--mute-audio"]
         )
 
+        # User Agent Satu Baris (Aman dari Syntax Error)
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
@@ -99,74 +85,73 @@ def main():
         page = context.new_page()
         page.on("response", sniff)
 
-        print(f"[ACTION] Membuka Halaman Film Induk: {FILM_URL}")
-        page.goto(FILM_URL, wait_until="domcontentloaded", timeout=60000) # Memuat halaman utama
-
-        # =========================
-        # 1. TEMUKAN IFRAME DAN AMBIL URL-NYA
-        # =========================
+        print(f"[ACTION] Membuka Halaman...")
         try:
-            print("[ACTION] Mencari iframe embed video...")
-            # Menunggu iframe dengan src yang mengandung hint
-            iframe_selector = f'iframe[src*="{IFRAME_HINT}"]'
-            iframe_element = page.wait_for_selector(iframe_selector, timeout=15000)
-            
-            if iframe_element:
-                extracted_iframe_url = iframe_element.get_attribute('src')
-                print(f"[SUCCESS] Iframe ditemukan: {extracted_iframe_url}")
-                
-            else:
-                 print("[FAILURE] Iframe tidak ditemukan dalam 15 detik.")
-                 browser.close()
-                 return 
-
+            page.goto(FILM_URL, wait_until="domcontentloaded", timeout=60000)
         except Exception as e:
-            print(f"[ERROR] Gagal menemukan iframe: {e}")
-            browser.close()
-            return
-            
-        # =========================
-        # 2. NAVIGASI KE IFRAME YANG DITEMUKAN
-        # =========================
-        if extracted_iframe_url:
-            print(f"[ACTION] Menavigasi ke URL Iframe yang diekstrak...")
-            # Playwright akan menggunakan Referer yang benar (halaman induk)
-            page.goto(extracted_iframe_url, wait_until="domcontentloaded", timeout=60000)
-            
-            # =========================
-            # 3. TRIGGER PLAYER DI DALAM IFRAME
-            # =========================
-            time.sleep(5) 
+            print(f"[WARNING] Loading halaman lambat: {e}")
 
+        # ==========================================
+        # STRATEGI KLIK AGRESIF (UNTUK MEMICU VIDEO)
+        # ==========================================
+        print("[ACTION] Tunggu 5 detik agar halaman stabil...")
+        time.sleep(5)
+
+        # Klik 1: Biasanya menutup iklan overlay atau memuat iframe
+        print("[ACTION] Klik Tengah #1 (Pemicu Iframe)...")
+        try:
+            page.mouse.click(400, 300)
+        except: pass
+        time.sleep(5)
+
+        # Klik 2: Biasanya untuk Play video
+        print("[ACTION] Klik Tengah #2 (Play Video)...")
+        try:
+            page.mouse.click(400, 300)
+        except: pass
+        time.sleep(5)
+
+        # Klik 3: Cadangan jika masih belum play
+        print("[ACTION] Klik Tengah #3 (Cadangan)...")
+        try:
+            page.mouse.click(400, 300)
+        except: pass
+        
+        # ==========================================
+        # CARI IFRAME (OPSIONAL - HANYA LOGGING)
+        # ==========================================
+        # Kita tidak akan pindah halaman (goto) ke iframe karena itu bikin error redirect.
+        # Kita cukup cari src-nya untuk info saja.
+        print("[ACTION] Memindai Iframe di halaman...")
+        iframes = page.frames
+        for frame in iframes:
             try:
-                print("[ACTION] Mencoba Klik di tengah iframe (400, 300) untuk Play...")
-                page.mouse.click(400, 300)
-                time.sleep(5)
-                
-                print("[ACTION] Klik kedua untuk memastikan pemutaran.")
-                page.mouse.click(400, 300) 
-                time.sleep(5)
+                src = frame.url
+                if "http" in src and "google" not in src:
+                    print(f"[INFO] Iframe terdeteksi: {src}")
+                    # Kadang link video ada di src iframe itu sendiri
+                    if ".m3u8" in src:
+                        streams.append(src)
+            except: pass
 
-            except Exception as e:
-                print(f"[ERROR] Gagal melakukan simulasi klik di iframe: {e}")
-                pass
-                
-        print("[ACTION] Menunggu request jaringan selesai (Total 10 detik)...")
-        page.wait_for_timeout(10000)
+        print("[ACTION] Menunggu trafik jaringan selesai (15 detik)...")
+        page.wait_for_timeout(15000)
         
         browser.close()
 
     # =========================
     # OUTPUT HASIL
     # =========================
+    # Bersihkan duplikat
     unique_streams = list(set(streams))
-    final_streams = [s for s in unique_streams if ".m3u8" in s or ".mpd" in s or ".mp4" in s]
     
-    if not final_streams and unique_streams:
-        final_streams = unique_streams
-    
+    # Prioritaskan .m3u8
+    final_streams = [s for s in unique_streams if ".m3u8" in s]
+    if not final_streams:
+        final_streams = unique_streams # Kalau gak ada m3u8, ambil apa aja yg ketemu
+
     result = {
-        "source": extracted_iframe_url if extracted_iframe_url else FILM_URL,
+        "source": FILM_URL,
         "count": len(final_streams),
         "streams": final_streams,
         "status": "ok" if final_streams else "no_stream_found"
@@ -177,11 +162,6 @@ def main():
 
     print("\n=== RESULT ===")
     print(json.dumps(result, indent=2))
-    
-    if final_streams:
-        print("\n::SUCCESS:: Tautan .m3u8/.mpd/.mp4 berhasil ditemukan. Siap untuk diputar di VLC/MX Player.")
-    else:
-        print("\n::FAILURE:: Tidak ada tautan streaming yang valid ditemukan.")
 
 if __name__ == "__main__":
     main()
