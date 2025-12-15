@@ -11,8 +11,11 @@ FILM_URL = sys.argv[1] if len(sys.argv) > 1 else \
 OUTPUT_DIR = "output"
 OUTPUT_FILE = f"{OUTPUT_DIR}/streams.json"
 
-# URL halaman utama film yang akan disuntikkan sebagai Referer
+# URL halaman utama film yang akan disuntikkan sebagai Referer (Penting untuk mengatasi redirect)
 REFERER_URL = "https://tv7.lk21official.cc/little-amelie-character-rain-2025"
+
+# User-Agent yang sama dengan yang dikonfigurasi di browser context
+DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 streams = []
 
@@ -95,19 +98,26 @@ def main():
         )
 
         context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            user_agent=DEFAULT_USER_AGENT
         )
 
         page = context.new_page()
         page.on("response", sniff)
 
-        print(f"[ACTION] Navigasi ke {FILM_URL} dengan Referer...")
-        # Aksi Kritis: Menambahkan referer=REFERER_URL
+        # Aksi Kritis: Menetapkan Referer dan User-Agent sebagai Extra HTTP Headers
+        # Ini memastikan header dikirim dengan benar, mengatasi ERR_TOO_MANY_REDIRECTS
+        page.set_extra_http_headers({
+            "Referer": REFERER_URL,
+            "User-Agent": DEFAULT_USER_AGENT
+        })
+        
+        print(f"[ACTION] Navigasi ke {FILM_URL} dengan Extra Headers...")
+        
+        # page.goto TANPA argumen 'referer' karena sudah diatur di page.set_extra_http_headers
         page.goto(
             FILM_URL,
             wait_until="domcontentloaded",
-            timeout=60000,
-            referer=REFERER_URL
+            timeout=60000
         )
 
         # =========================
@@ -158,7 +168,7 @@ def main():
     if final_streams:
         print("\n::SUCCESS:: Tautan .m3u8/.mpd/.mp4 berhasil ditemukan. Siap untuk diputar di VLC/MX Player.")
     else:
-        print("\n::FAILURE:: Tidak ada tautan streaming yang valid ditemukan. Coba periksa apakah server embed video ini memerlukan token yang lebih kompleks.")
+        print("\n::FAILURE:: Tidak ada tautan streaming yang valid ditemukan. Ini mungkin menunjukkan bahwa situs memerlukan token sesi atau JavaScript lanjutan.")
 
 if __name__ == "__main__":
     main()
