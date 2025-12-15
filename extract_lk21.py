@@ -1,13 +1,15 @@
 from playwright.sync_api import sync_playwright
 import json, sys, time, os
-from urllib.parse import urlparse
 
 # =========================
-# KONFIGURASI
+# KONFIGURASI INPUT (HARUS DIGANTI DENGAN URL IFRAME VIDEO YANG ASLI!)
 # =========================
-# Gunakan URL film sebagai argumen baris perintah, atau gunakan default
+# GANTI INI: Gunakan URL dari cloud.hownetwork.xyz atau embed video, bukan halaman film utamanya.
+# Contoh:
+# FILM_URL = "https://cloud.hownetwork.xyz/video.php?id=lhe9oikcwiavnbsljh01mcmkkc0xhavsmdaeim4czmp3vqsimcswob0jkh96bgzqe096"
+# (Jika Anda menjalankannya tanpa argumen baris perintah)
 FILM_URL = sys.argv[1] if len(sys.argv) > 1 else \
-    "https://tv7.lk21official.cc/little-amelie-character-rain-2025"
+    "MASUKKAN URL IFRAME VIDEO DI SINI" 
 
 OUTPUT_DIR = "output"
 OUTPUT_FILE = f"{OUTPUT_DIR}/streams.json"
@@ -39,7 +41,8 @@ ALLOWED_HINTS = [
 # =========================
 def sniff(response):
     """
-    Fungsi untuk memeriksa setiap respons jaringan yang diterima.
+    Fungsi untuk memeriksa setiap respons jaringan yang diterima,
+    mencari file streaming (.m3u8, .mpd, atau .mp4).
     """
     url = response.url.lower()
 
@@ -49,7 +52,6 @@ def sniff(response):
             return
 
     # 2. FILTER BERDASARKAN URL
-    # Hanya lanjutkan jika URL mengandung salah satu kata kunci yang diizinkan
     if not any(h in url for h in ALLOWED_HINTS):
         return
 
@@ -57,38 +59,40 @@ def sniff(response):
     try:
         content_type = response.headers.get("content-type", "").lower()
 
-        # Target Content-Types:
-        # - Playlist HLS/DASH
-        # - Video (MP4, TS)
-        if (
-            "application/vnd.apple.mpegurl" in content_type or # Tipe umum untuk .m3u8
-            "application/x-mpegurl" in content_type or         # Tipe lain untuk .m3u8
-            "application/dash+xml" in content_type or          # Tipe untuk .mpd (DASH)
-            "video/" in content_type or                        # Tipe umum untuk video (video/mp4, video/x-flv, dll.)
-            ".m3u8" in url or ".mpd" in url                    # Pastikan URL playlist tertangkap
-        ):
+        # Target Content-Types untuk playlist/file video utama
+        is_video_content = (
+            "application/vnd.apple.mpegurl" in content_type or # Tipe .m3u8
+            "application/x-mpegurl" in content_type or         # Tipe lain .m3u8
+            "application/dash+xml" in content_type or          # Tipe .mpd (DASH)
+            "video/" in content_type                           # Tipe umum untuk video (mp4, flv, etc.)
+        )
+        
+        # Prioritaskan URL yang berakhiran playlist atau file
+        is_preferred_url = ".m3u8" in url or ".mpd" in url or ".mp4" in url
+
+        if is_video_content or is_preferred_url:
             if url not in streams:
-                # Pastikan URL adalah URL lengkap dan bukan hanya fragmen (misalnya file .ts)
-                # Umumnya yang bisa diputar di VLC adalah URL playlist (.m3u8/.mpd)
-                if ".m3u8" in url or ".mpd" in url or ".mp4" in url:
+                if is_preferred_url:
                     print(f"[FILM STREAM FOUND (Playlist/File)] {url}")
-                    streams.append(url)
                 else:
-                    print(f"[FILM STREAM FOUND (Fragmen)] {url}")
-                    # Jika itu fragmen (.ts), tetap simpan jika kita tidak menemukan playlist
-                    streams.append(url) 
+                    print(f"[FILM STREAM FOUND (Fragmen/Umum)] {url}")
+                    
+                streams.append(url)
 
     except Exception:
-        # Abaikan error jika gagal membaca header
         pass
 
 # =========================
 # FUNGSI UTAMA
 # =========================
 def main():
+    if FILM_URL == "MASUKKAN URL IFRAME VIDEO DI SINI":
+        print("ERROR: Harap ganti FILM_URL dengan URL iframe video yang sebenarnya.")
+        print("Contoh: python stream_extractor.py https://cloud.hownetwork.xyz/video.php?id=...")
+        return
+
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     
-    # Inisialisasi Playwright
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True, # Ubah ke False jika ingin melihat proses di browser
@@ -100,7 +104,6 @@ def main():
         )
 
         context = browser.new_context(
-            # Gunakan User Agent desktop agar server menyajikan versi desktop
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -114,19 +117,19 @@ def main():
         page.on("response", sniff)
 
         print("[OPEN]", FILM_URL)
-        page.goto(FILM_URL, wait_until="domcontentloaded")
+        # Buka langsung URL embed video
+        page.goto(FILM_URL, wait_until="domcontentloaded", timeout=60000)
 
         # =========================
         # TRIGGER PLAYER
         # =========================
-        # Beri waktu elemen-elemen dimuat (termasuk iframe video)
-        time.sleep(5) 
+        time.sleep(5) # Beri waktu elemen dimuat
 
         try:
-            # Klik di tengah layar untuk memulai pemutar (diperlukan untuk memicu .m3u8)
+            # Karena kita langsung membuka iframe, klik di tengah seharusnya memicu play
             print("[ACTION] Mencoba Klik di tengah layar (400, 300) untuk Play")
             page.mouse.click(400, 300)
-            time.sleep(3)
+            time.sleep(5)
             
             # Klik kedua, seringkali untuk menutup pop-up/iklan overlay
             page.mouse.click(400, 300) 
@@ -136,31 +139,24 @@ def main():
             print(f"[ERROR] Gagal melakukan simulasi klik: {e}")
             pass
 
-        # Beri waktu tambahan untuk semua request streaming dimuat (total sekitar 13 detik)
-        print("[ACTION] Menunggu request jaringan selesai...")
-        page.wait_for_timeout(5000)
+        # Beri waktu tambahan untuk semua request streaming dimuat
+        print("[ACTION] Menunggu request jaringan selesai (Total 10 detik)...")
+        page.wait_for_timeout(10000)
         
         browser.close()
 
     # =========================
     # OUTPUT HASIL
     # =========================
-    # Filter hanya menyimpan URL unik (walaupun sudah dilakukan di dalam sniff, untuk jaga-jaga)
     unique_streams = list(set(streams))
     
-    # Utamakan URL playlist (.m3u8 atau .mpd) untuk hasil terbaik
-    preferred_streams = [s for s in unique_streams if ".m3u8" in s or ".mpd" in s or ".mp4" in s]
+    # Utamakan URL playlist/file video (ini yang bisa di-play di VLC/MX Player)
+    final_streams = [s for s in unique_streams if ".m3u8" in s or ".mpd" in s or ".mp4" in s]
     
-    if not preferred_streams and unique_streams:
-         # Jika tidak ada playlist, gunakan semua yang ditemukan
+    # Jika tidak ada playlist/file video, gunakan semua yang ditemukan
+    if not final_streams and unique_streams:
         final_streams = unique_streams
-    elif preferred_streams:
-        # Jika ada playlist, utamakan itu
-        final_streams = preferred_streams
-    else:
-        # Jika tidak ada yang ditemukan
-        final_streams = []
-
+    
     result = {
         "source": FILM_URL,
         "count": len(final_streams),
@@ -175,11 +171,12 @@ def main():
     print(json.dumps(result, indent=2))
     
     if final_streams:
-        print("\n**INSTRUKSI LANJUTAN**")
-        print("Tautan .m3u8/.mpd yang ditemukan (jika ada) dapat disalin dan dimasukkan ke 'Buka Aliran Jaringan...' di VLC/MX Player.")
+        print("\n**KESUKSESAN**")
+        print("Tautan .m3u8/.mpd/.mp4 yang ditemukan sudah siap digunakan.")
+        print("Gunakan tautan pertama di VLC/MX Player melalui 'Buka Aliran Jaringan...'")
     else:
-        print("\n**INSTRUKSI LANJUTAN**")
-        print("Tidak ada tautan streaming yang ditemukan. Coba jalankan skrip lagi atau sesuaikan koordinat klik.")
+        print("\n**KEGAGALAN**")
+        print("Tidak ada tautan streaming yang valid ditemukan. Coba periksa apakah URL embed yang Anda masukkan sudah benar.")
 
 if __name__ == "__main__":
     main()
