@@ -14,6 +14,7 @@ on:
 jobs:
   extract:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
@@ -30,14 +31,14 @@ jobs:
           pip install playwright
           playwright install chromium
 
-      - name: Run LK21 extractor
+      - name: Run extractor
         run: |
           mkdir -p output
           python extract_lk21.py "${{ github.event.inputs.film_url }}"
 
-      - name: Show result (debug)
+      - name: Debug output
         run: |
-          echo "===== OUTPUT FILE ====="
+          echo "===== OUTPUT ====="
           ls -lah output || true
           cat output/streams.json || true
 
@@ -45,8 +46,6 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-
-          git status
 
           git add output/streams.json || true
           git commit -m "Update LK21 streams" || echo "Nothing to commit"
