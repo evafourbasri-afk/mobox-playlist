@@ -1,13 +1,14 @@
 name: Stream Extractor Runner
 
 on:
-  # Anda dapat memicu workflow ini secara manual dari GitHub UI
+  # Memungkinkan pemicuan workflow secara manual dari GitHub UI
   workflow_dispatch:
     inputs:
-      video_url:
-        description: 'URL Embed Video yang Akan Diekstrak (e.g., cloud.hownetwork.xyz/...)'
+      # URL ini HARUS berupa URL halaman utama film, bukan URL embednya.
+      video_page_url:
+        description: 'URL Halaman Film Induk (e.g., tv7.lk21official.cc/...)'
         required: true
-        default: 'https://cloud.hownetwork.xyz/video.php?id=lhe9oikcwiavnbsljh01mcmkkc0xhavsmdaeim4czmp3vqsimcswob0jkh96bgzqe096'
+        default: 'https://tv7.lk21official.cc/little-amelie-character-rain-2025'
 
 jobs:
   extract_stream:
@@ -33,24 +34,23 @@ jobs:
       run: |
         playwright install chromium
         
-    # Langkah 4: Jalankan Skrip Ekstraksi
-    - name: Run Stream Extractor
+    # Langkah 4: Jalankan Skrip Ekstraksi (Menggunakan Halaman Induk sebagai Target)
+    - name: Run Stream Extractor (Targeting Parent Page)
       run: |
-        # Menggunakan input URL dari workflow_dispatch.
-        # Jika input tidak diberikan, ia akan menggunakan default yang ada di dalam skrip Python.
-        python stream_extractor.py "${{ github.event.inputs.video_url }}"
+        # Menggunakan input URL halaman film sebagai argumen.
+        # Skrip Python sekarang akan memuat halaman ini, mencari iframe, dan menavigasi ke iframe tersebut.
+        python stream_extractor.py "${{ github.event.inputs.video_page_url }}"
         
     # Langkah 5: Tampilkan dan Simpan Hasil (File streams.json)
-    - name: Display and Save Result
+    - name: Display Result
       run: |
         echo "--- HASIL EKSTRAKSI ---"
         cat output/streams.json
         echo "----------------------"
         
-    # Opsional: Jika Anda ingin menyimpan file hasil sebagai artefak di Actions
+    # Opsional: Upload file hasil
     - name: Upload Stream Result Artifact
       uses: actions/upload-artifact@v4
       with:
         name: extracted-streams
         path: output/streams.json
-
