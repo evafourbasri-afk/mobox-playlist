@@ -4,7 +4,7 @@ import json, sys, time, os
 # =========================
 # KONFIGURASI INPUT (SUDAH DISET KE URL EMBED YANG DIBERIKAN)
 # =========================
-# URL ini adalah target utama skrip (URL embed video)
+# URL target utama adalah URL embed video yang benar
 FILM_URL = sys.argv[1] if len(sys.argv) > 1 else \
     "https://cloud.hownetwork.xyz/video.php?id=lhe9oikcwiavnbsljh01mcmkkc0xhavsmdaeim4czmp3vqsimcswob0jkh96bgzqe096" 
 
@@ -72,7 +72,6 @@ def sniff(response):
                 if is_preferred_url:
                     print(f"[FILM STREAM FOUND (Playlist/File)] {url}")
                 else:
-                    # Ini mungkin file .ts atau fragmen lain
                     print(f"[FILM STREAM FOUND (Fragmen/Umum)] {url}")
                     
                 streams.append(url)
@@ -85,6 +84,12 @@ def sniff(response):
 # =========================
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    
+    # Verifikasi target
+    print("==============================================")
+    print(f"TARGET URL: {FILM_URL}")
+    print("Memastikan skrip menargetkan langsung URL embed...")
+    print("==============================================")
     
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -109,7 +114,7 @@ def main():
         # Pasang sniffer ke event "response"
         page.on("response", sniff)
 
-        print("[OPEN]", FILM_URL)
+        print(f"[OPEN] {FILM_URL}")
         # Buka langsung URL embed video
         page.goto(FILM_URL, wait_until="domcontentloaded", timeout=60000)
 
@@ -169,7 +174,8 @@ def main():
         print("Gunakan tautan pertama di VLC/MX Player melalui 'Buka Aliran Jaringan...'")
     else:
         print("\n**KEGAGALAN**")
-        print("Tidak ada tautan streaming yang valid ditemukan. Kemungkinan situs menggunakan token keamanan yang sangat ketat.")
+        print("Tidak ada tautan streaming yang valid ditemukan meskipun menargetkan URL embed.")
+        print("Situs mungkin menggunakan *token* sekali pakai yang mencegah *stream* diputar di luar browser.")
 
 if __name__ == "__main__":
     main()
