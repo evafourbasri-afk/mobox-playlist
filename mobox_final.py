@@ -1,18 +1,15 @@
 # mobox_final.py
-# FINAL VERSION — API LIST + PLAYWRIGHT STREAM → M3U
+# FINAL SAFE VERSION — API LIST (ADAPTER) + PLAYWRIGHT → M3U
 
 import asyncio
 from playwright.async_api import async_playwright
 
-# ================== KONFIG ==================
-MODE = "movie"          # movie | series
-LIMIT = 5               # batasi item (aman untuk Actions)
+# ================= CONFIG =================
+LIMIT = 5
 OUTPUT_FILE = "mobox.m3u"
 
-MOVIEBOX_BASE = "https://moviebox.ph"
 REFERER_URL = "https://fmoviesunblocked.net/"
 MIN_FILE_SIZE_MB = 50
-
 HEADLESS = True
 
 CUSTOM_HEADERS = {
@@ -25,29 +22,21 @@ ANDROID_UA = (
     "(KHTML, like Gecko) Chrome/92.0 Mobile Safari/537.36"
 )
 
-# ================== PROVIDER LIST ==================
-def get_items_from_api():
-    """
-    Adapter: ambil list dari file teman (API-based)
-    Output wajib: [{title, url}]
-    """
-    if MODE == "movie":
-        from providers.movies_mb import get_movies
-        return get_movies(limit=LIMIT)
-    else:
-        from providers.series_mb import get_series
-        return get_series(limit=LIMIT)
+# ================= API ADAPTER =================
+def get_items():
+    from providers.movies_adapter import get_movies
+    return get_movies(limit=LIMIT)
 
-# ================== M3U BUILDER ==================
+# ================= M3U BUILDER =================
 def build_m3u(items):
     out = ["#EXTM3U"]
-    for x in items:
-        if x.get("stream"):
-            out.append(f'#EXTINF:-1 group-title="MovieBox", {x["title"]}')
-            out.append(f'{x["stream"]}|Referer={REFERER_URL}')
+    for it in items:
+        if it.get("stream"):
+            out.append(f'#EXTINF:-1 group-title="MovieBox", {it["title"]}')
+            out.append(f'{it["stream"]}|Referer={REFERER_URL}')
     return "\n".join(out)
 
-# ================== SIZE CHECK ==================
+# ================= SIZE CHECK =================
 async def get_file_size_mb(page, url):
     try:
         res = await page.request.head(url, headers=CUSTOM_HEADERS, timeout=5000)
@@ -56,7 +45,7 @@ async def get_file_size_mb(page, url):
     except:
         return 0
 
-# ================== STREAM GRABBER ==================
+# ================= STREAM GRAB =================
 async def get_stream_url(page, detail_url):
     candidates = []
     BLACKLIST = ["trailer", "preview", "promo", "ads"]
@@ -76,7 +65,6 @@ async def get_stream_url(page, detail_url):
     except:
         pass
 
-    # paksa play
     await page.wait_for_timeout(3000)
     try:
         await page.evaluate("""
@@ -100,10 +88,10 @@ async def get_stream_url(page, detail_url):
 
     return None
 
-# ================== MAIN ==================
+# ================= MAIN =================
 async def main():
-    items = get_items_from_api()
-    print(f"▶ API List: {len(items)} item")
+    items = get_items()
+    print(f"▶ API LIST: {len(items)} item")
 
     results = []
 
