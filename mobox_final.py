@@ -1,5 +1,6 @@
 # mobox_final.py
-# FINAL SAFE VERSION — API LIST (ADAPTER) + PLAYWRIGHT → M3U
+# FINAL FIXED VERSION — MovieBox → M3U
+# SAFE for GitHub Actions (NO aiohttp, NO obfuscated import)
 
 import asyncio
 from playwright.async_api import async_playwright
@@ -9,7 +10,6 @@ LIMIT = 5
 OUTPUT_FILE = "mobox.m3u"
 
 REFERER_URL = "https://fmoviesunblocked.net/"
-MIN_FILE_SIZE_MB = 50
 HEADLESS = True
 
 CUSTOM_HEADERS = {
@@ -24,6 +24,7 @@ ANDROID_UA = (
 
 # ================= API ADAPTER =================
 def get_items():
+    # GANTI isi adapter ini sesuai data kamu
     from providers.movies_adapter import get_movies
     return get_movies(limit=LIMIT)
 
@@ -36,39 +37,40 @@ def build_m3u(items):
             out.append(f'{it["stream"]}|Referer={REFERER_URL}')
     return "\n".join(out)
 
-# ================= SIZE CHECK =================
-async def get_file_size_mb(page, url):
-    try:
-        res = await page.request.head(url, headers=CUSTOM_HEADERS, timeout=5000)
-        size = res.headers.get("content-length")
-        return int(size) / (1024 * 1024) if size else 0
-    except:
-        return 0
-
-# ================= STREAM GRAB =================
+# ================= STREAM GRABBER (FINAL FIX) =================
 async def get_stream_url(page, detail_url):
     candidates = []
-    BLACKLIST = ["trailer", "preview", "promo", "ads"]
 
     def on_request(req):
         u = req.url.lower()
-        if not (".mp4" in u or ".m3u8" in u):
-            return
-        if any(b in u for b in BLACKLIST):
-            return
-        candidates.append(req.url)
+
+        # Fokus stream HLS MovieBox
+        if (
+            ".m3u8" in u
+            or "playlist" in u
+            or "index.m3u8" in u
+            or "/hls/" in u
+        ):
+            candidates.append(req.url)
 
     page.on("request", on_request)
 
     try:
-        await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
+        await page.goto(detail_url, wait_until="networkidle", timeout=60000)
     except:
         pass
 
-    await page.wait_for_timeout(3000)
+    # ==== FORCE PLAY (KRUSIAL) ====
+    await page.wait_for_timeout(4000)
     try:
         await page.evaluate("""
             () => {
+                // klik semua kemungkinan tombol play
+                document.querySelectorAll(
+                    'button, .play, .vjs-big-play-button, .jw-icon-play'
+                ).forEach(b => b.click());
+
+                // paksa video play
                 document.querySelectorAll('video').forEach(v => {
                     v.muted = true;
                     v.play();
@@ -78,12 +80,13 @@ async def get_stream_url(page, detail_url):
     except:
         pass
 
-    await page.wait_for_timeout(8000)
+    # ==== TUNGGU NETWORK STREAM ====
+    await page.wait_for_timeout(15000)
     page.remove_listener("request", on_request)
 
+    # ==== PILIH STREAM TERBAIK ====
     for u in candidates:
-        size = await get_file_size_mb(page, u)
-        if size >= MIN_FILE_SIZE_MB:
+        if ".m3u8" in u:
             return u
 
     return None
@@ -113,6 +116,9 @@ async def main():
             if stream:
                 it["stream"] = stream
                 results.append(it)
+                print("✔ stream ditemukan")
+            else:
+                print("✖ stream tidak ditemukan")
             print("-" * 40)
 
         await browser.close()
