@@ -2,7 +2,12 @@ from curl_cffi import requests
 from bs4 import BeautifulSoup
 import json
 import time
-import random
+
+# --- KONFIGURASI PROXY DI SINI ---
+# Kosongkan jika main di laptop sendiri.
+# Isi jika main di GitHub Actions (Wajib cari Proxy yang aktif).
+# Contoh: "http://username:password@192.168.1.1:8080"
+MY_PROXY = "" 
 
 class LayarKacaProvider:
     def __init__(self):
@@ -15,22 +20,26 @@ class LayarKacaProvider:
         try:
             url = f"{self.search_url}/search.php?s={query}"
             
-            # MENGGUNAKAN CURL_CFFI dengan impersonate Chrome
-            # Timeout diperpanjang jadi 30 detik
+            # Setting Proxy
+            proxies = {"http": MY_PROXY, "https": MY_PROXY} if MY_PROXY else None
+
+            # Request dengan impersonate Chrome
             response = requests.get(
                 url, 
                 impersonate="chrome110", 
-                timeout=30
+                timeout=30,
+                proxies=proxies
             )
             
             if response.status_code != 200:
                 print(f"Gagal akses! Status Code: {response.status_code}")
+                # Jika 522/403, berarti IP atau Proxy diblokir
                 return []
 
             try:
                 data = response.json()
             except json.JSONDecodeError:
-                print("Error: Website tidak mengembalikan JSON.")
+                print("Error: Website tidak mengembalikan JSON (Mungkin kena Captcha).")
                 return []
 
             results = []
@@ -61,13 +70,11 @@ class LayarKacaProvider:
 
 if __name__ == "__main__":
     provider = LayarKacaProvider()
-    
-    # Kita coba cari yang pasti ada
     results = provider.search("Avengers")
     
     if results:
         with open("playlist_result.json", "w") as f:
             json.dump(results, f, indent=4)
-        print("Data berhasil disimpan ke playlist_result.json")
+        print("Data berhasil disimpan.")
     else:
-        print("Tidak ada data yang ditemukan.")
+        print("Tidak ada data ditemukan.")
