@@ -1,40 +1,45 @@
 name: Auto Update Playlist
 
-# Pemicu (Trigger) kapan script ini jalan
+# Pemicu (Trigger):
+# 1. schedule: Jalan otomatis setiap 6 jam
+# 2. workflow_dispatch: Bisa dijalankan manual lewat tombol "Run workflow"
 on:
   schedule:
-    - cron: '0 */6 * * *'  # Jalan otomatis setiap 6 jam
-  workflow_dispatch:       # Agar muncul tombol "Run Workflow" manual
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
 
 jobs:
   scrape-and-update:
     runs-on: ubuntu-latest
-    permissions:           # Izin untuk menyimpan hasil update ke repo
+    
+    # Memberi izin agar script bisa menyimpan (upload) hasil update ke GitHub
+    permissions:
       contents: write
 
     steps:
-      # 1. Ambil kode dari repository
+      # 1. Mengambil kode dari repository kamu
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      # 2. Siapkan Python
+      # 2. Menyiapkan Python versi 3.9
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      # 3. Install Library yang dibutuhkan
+      # 3. Menginstall library yang dibutuhkan (Termasuk cloudscraper)
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests beautifulsoup4 PyYAML
+          pip install requests beautifulsoup4 PyYAML cloudscraper
 
-      # 4. Jalankan Script Python kamu
-      # Pastikan nama file python-nya sesuai (misal: layarkaca.py)
+      # 4. Menjalankan script Python utama
+      # Pastikan nama file script kamu adalah 'layarkaca.py'
       - name: Run Scraper Script
         run: python layarkaca.py
 
-      # 5. Simpan hasil (Commit & Push) jika ada perubahan file
+      # 5. Menyimpan hasil update (Commit & Push)
+      # Script ini akan mengecek apakah ada file baru (playlist_result.json) yang berubah
       - name: Commit and Push Changes
         run: |
           git config --global user.name "GitHub Action Bot"
