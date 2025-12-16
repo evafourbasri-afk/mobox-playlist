@@ -1,4 +1,4 @@
-name: MovieCEND
+name: MovieBox M3U Generator
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ jobs:
       with:
         python-version: "3.11"
 
-    - name: Install deps
+    - name: Install dependencies
       run: |
         pip install playwright
         playwright install chromium
@@ -25,7 +25,7 @@ jobs:
     - name: Run scraper
       run: python mobox_final.py
 
-    - name: Commit result
+    - name: Commit playlist
       run: |
         git config user.name "github-actions"
         git config user.email "actions@github.com"
