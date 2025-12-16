@@ -1,0 +1,46 @@
+# Definisi Provider LayarKaca
+# Dikonversi dari LayarKacaProviderPlugin.kt dan LayarKacaProvider.kt
+
+name: LayarKaca
+lang: id
+version: 1.0.0
+
+urls:
+  [span_16](start_span)main: "https://lk21.de"       #[span_16](end_span)
+  [span_17](start_span)series: "https://series.lk21.de" #[span_17](end_span)
+  [span_18](start_span)search: "https://search.lk21.party" #[span_18](end_span)
+
+supported_types:
+  - Movie
+  - TvSeries
+  - [span_19](start_span)AsianDrama #[span_19](end_span)
+
+# Definisi endpoint untuk scraping (Pseudo-code logic representation)
+endpoints:
+  search:
+    [span_20](start_span)url: "{search_url}/search.php?s={query}" #[span_20](end_span)
+    response_type: json
+    structure:
+      list: "data"
+      title: "title"
+      slug: "slug"
+      type: "type"
+  
+  home:
+    - title: "Film Terpopuler"
+      [span_21](start_span)path: "/populer/page/" #[span_21](end_span)
+    - title: "Film Berdasarkan IMDb Rating"
+      [span_22](start_span)path: "/rating/page/" #[span_22](end_span)
+    - title: "Series Terbaru"
+      [span_23](start_span)path: "/latest-series/page/" #[span_23](end_span)
+
+extractors:
+  # [span_24](start_span)Daftar extractor yang didaftarkan di LayarKacaProviderPlugin.kt[span_24](end_span)
+  - name: EmturbovidExtractor
+  - name: Furher
+    [span_25](start_span)url: "https://furher.in" #[span_25](end_span)
+  - name: Hownetwork
+    [span_26](start_span)url: "https://stream.hownetwork.xyz" #[span_26](end_span)
+  - name: VidHidePro6
+  - name: Turbovidhls
+    [span_27](start_span)url: "https://turbovidhls.com" #[span_27](end_span)
