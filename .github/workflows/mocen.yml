@@ -1,5 +1,4 @@
-name: MovieBox M3U Generator
-
+name: MovCend
 on:
   workflow_dispatch:
   schedule:
