@@ -46,7 +46,7 @@ jobs:
 
       - name: Run series script
 
-        run: python seriesmb.py
+        run: python series_mb.py
 
       
 
