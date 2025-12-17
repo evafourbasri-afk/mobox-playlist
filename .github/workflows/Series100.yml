@@ -1,29 +1,32 @@
-name: sries100
+name: series100
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 */4 * * *"
 
 jobs:
   update-series:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
+
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      
+          python-version: "3.11"
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-      
+          pip install playwright requests
+          playwright install chromium
+
       - name: Run series script
         run: python seriesmb.py
-      
+
       - name: Commit and push changes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -31,10 +34,9 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add -A
-          git status
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "Update Series M3U - $(date +'%Y-%m-%d %H:%M:%S')"
+            git commit -m "Update series.m3u $(date +'%Y-%m-%d %H:%M:%S')"
             git push origin main
           fi
