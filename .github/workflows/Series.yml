@@ -1,4 +1,4 @@
-name: Update Series M3U Only
+name: Series100
 
 
 
@@ -46,7 +46,7 @@ jobs:
 
       - name: Run series script
 
-        run: python series_mb.py
+        run: python seriesmb.py
 
       
 
