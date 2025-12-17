@@ -1,4 +1,4 @@
-name: Update Series M3U Only
+name: s5 halaman
 
 on:
   workflow_dispatch:
