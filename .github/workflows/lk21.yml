@@ -8,9 +8,6 @@ on:
         required: true
         default: "https://tv7.lk21official.cc/little-amelie-character-rain-2025"
 
-  schedule:
-    - cron: "0 */6 * * *"
-
 jobs:
   extract:
     runs-on: ubuntu-latest
